@@ -8,7 +8,7 @@ Status: **under active development** (scaffold stage).
 ## Roadmap
 
 - [x] Module scaffold
-- [ ] Hello World validation
+- [x] Hello World validation
 - [ ] globe.gl integration (Earth texture, atmosphere, auto-rotation)
 - [ ] Cloud layer
 - [ ] Day/night terminator
@@ -31,10 +31,18 @@ then add it to `config.js`.
 	module: "MMM-Earth3D",
 	position: "middle_center",
 	config: {
-		// options will be documented as they are implemented
+		width: 500,
+		height: 500,
+		rotationSpeed: 0.3
 	}
 }
 ```
+
+| Option          | Type   | Default | Description                                  |
+| ---------------- | ------ | ------- | --------------------------------------------- |
+| `width`          | number | `500`   | Width of the globe canvas in pixels.           |
+| `height`          | number | `500`   | Height of the globe canvas in pixels.          |
+| `rotationSpeed`   | number | `0.3`   | Auto-rotation speed of the globe (reserved for Phase 3; not yet implemented). |
 
 ## License
 

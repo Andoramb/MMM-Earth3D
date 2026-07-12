@@ -6,7 +6,11 @@
  */
 Module.register("MMM-Earth3D", {
 	// Default module config.
-	defaults: {},
+	defaults: {
+		width: 500,
+		height: 500,
+		rotationSpeed: 0.3
+	},
 
 	start: function () {
 		Log.info("Starting module: " + this.name);
@@ -19,6 +23,7 @@ Module.register("MMM-Earth3D", {
 	getDom: function () {
 		const wrapper = document.createElement("div");
 		wrapper.className = "MMM-Earth3D";
+		wrapper.innerHTML = "&#127760; Earth3D module loaded";
 		return wrapper;
 	}
 });
