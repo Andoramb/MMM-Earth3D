@@ -1,4 +1,4 @@
-/* global Module */
+/* global Module, Earth3DRenderer */
 
 /*
  * MMM-Earth3D
@@ -12,6 +12,8 @@ Module.register("MMM-Earth3D", {
 		rotationSpeed: 0.3
 	},
 
+	renderer: null,
+
 	start: function () {
 		Log.info("Starting module: " + this.name);
 	},
@@ -20,10 +22,32 @@ Module.register("MMM-Earth3D", {
 		return ["MMM-Earth3D.css"];
 	},
 
+	getScripts: function () {
+		return ["public/vendor/globe.gl.min.js", "public/Earth3DRenderer.js"];
+	},
+
 	getDom: function () {
 		const wrapper = document.createElement("div");
 		wrapper.className = "MMM-Earth3D";
-		wrapper.innerHTML = "&#127760; Earth3D module loaded";
+		wrapper.id = "earth3d-" + this.identifier;
+		wrapper.style.width = this.config.width + "px";
+		wrapper.style.height = this.config.height + "px";
 		return wrapper;
+	},
+
+	// globe.gl needs the container attached to the live DOM to measure its
+	// size, so the globe is built after MM's initial DOM pass completes.
+	notificationReceived: function (notification) {
+		if (notification === "DOM_OBJECTS_CREATED") {
+			const container = document.getElementById("earth3d-" + this.identifier);
+			this.renderer = new Earth3DRenderer(container, this.config);
+		}
+	},
+
+	stop: function () {
+		if (this.renderer) {
+			this.renderer.destroy();
+			this.renderer = null;
+		}
 	}
 });

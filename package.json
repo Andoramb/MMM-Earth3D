@@ -14,5 +14,8 @@
 		"3d",
 		"webgl"
 	],
-	"license": "MIT"
+	"license": "MIT",
+	"dependencies": {
+		"globe.gl": "^2.46.1"
+	}
 }
