@@ -52,10 +52,45 @@ Module.register("MMM-Earth3D", {
 
 	// globe.gl needs the container attached to the live DOM to measure its
 	// size, so the globe is built after MM's initial DOM pass completes.
-	notificationReceived: function (notification) {
+	notificationReceived: function (notification, payload) {
 		if (notification === "DOM_OBJECTS_CREATED") {
 			const container = document.getElementById("earth3d-" + this.identifier);
 			this.renderer = new Earth3DRenderer(container, this.config);
+			return;
+		}
+
+		if (notification === "EARTH3D_SET_CONFIG" && this.renderer) {
+			this.applyLiveConfig(payload || {});
+		}
+	},
+
+	// Live-tunes the running globe without a page reload. Send this
+	// notification from a MMM-Remote-Control custom notification, e.g.:
+	// POST /api/notification/EARTH3D_SET_CONFIG  { "camera": { "zoom": 30 } }
+	applyLiveConfig: function (partial) {
+		if (partial.rotationSpeed !== undefined) {
+			this.config.rotationSpeed = partial.rotationSpeed;
+			this.renderer.applyRotationSpeed();
+		}
+
+		if (partial.camera) {
+			if (partial.camera.zoom !== undefined) {
+				this.config.camera.zoom = partial.camera.zoom;
+				this.renderer.applyZoom();
+			}
+			if (partial.camera.rotate) {
+				Object.assign(this.config.camera.rotate, partial.camera.rotate);
+				this.renderer.applyGlobeTransform();
+			}
+			if (partial.camera.position) {
+				Object.assign(this.config.camera.position, partial.camera.position);
+				this.renderer.applyGlobeTransform();
+			}
+		}
+
+		if (partial.quality !== undefined && partial.quality !== this.config.quality) {
+			this.config.quality = partial.quality;
+			this.renderer.applyQuality();
 		}
 	},
 

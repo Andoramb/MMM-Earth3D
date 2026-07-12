@@ -54,14 +54,36 @@ class Earth3DRenderer {
 
 		const controls = this.globe.controls();
 		controls.autoRotate = true;
-		controls.autoRotateSpeed = (clamp(this.config.rotationSpeed, 0, 100) / 100) * ROTATION_SPEED_MAX;
 		controls.enableZoom = false;
-
-		this.globe.pointOfView({ altitude: this.zoomToAltitude(this.config.camera.zoom) });
+		this.applyRotationSpeed();
+		this.applyZoom();
 
 		// The globe mesh isn't added to the scene synchronously (globe.gl
 		// debounces its internal update digest), so poll until it appears.
 		this.waitForGlobeObject();
+	}
+
+	// Live-update entry points: config is shared by reference with the
+	// MMM-Earth3D module instance, so callers mutate this.config first and
+	// then call the matching apply*() to push it onto the live globe.gl scene.
+
+	applyRotationSpeed() {
+		this.globe.controls().autoRotateSpeed = (clamp(this.config.rotationSpeed, 0, 100) / 100) * ROTATION_SPEED_MAX;
+	}
+
+	applyZoom() {
+		this.globe.pointOfView({ altitude: this.zoomToAltitude(this.config.camera.zoom) }, 400);
+	}
+
+	// Antialiasing is a WebGLRenderer construction option and can't be
+	// changed on an existing context, so quality changes rebuild the globe.
+	applyQuality() {
+		if (this.globe) {
+			this.globe._destructor();
+			this.globe = null;
+		}
+		this.globeObject3D = null;
+		this.init();
 	}
 
 	zoomToAltitude(zoom) {
@@ -86,6 +108,11 @@ class Earth3DRenderer {
 	}
 
 	applyGlobeTransform() {
+		if (!this.globeObject3D) {
+			// Not resolved yet - the pending waitForGlobeObject() poll will
+			// call this again once it is, picking up the latest config.
+			return;
+		}
 		const { rotate, position } = this.config.camera;
 		this.globeObject3D.rotation.set(degToRad(rotate.x), degToRad(rotate.y), degToRad(rotate.z));
 		this.globeObject3D.position.set(position.x, position.y, position.z);

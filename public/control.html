@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMM-Earth3D Control</title>
+<style>
+	:root { color-scheme: dark; }
+	body {
+		margin: 0;
+		padding: 16px;
+		background: #111;
+		color: #eee;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+		max-width: 480px;
+		margin: 0 auto;
+	}
+	h1 {
+		font-size: 18px;
+		font-weight: 600;
+		margin: 16px 0 4px;
+	}
+	.status {
+		font-size: 13px;
+		min-height: 18px;
+		margin-bottom: 12px;
+		color: #8f8;
+	}
+	.status.error { color: #f88; }
+	fieldset {
+		border: 1px solid #333;
+		border-radius: 8px;
+		margin-bottom: 16px;
+		padding: 12px 16px 16px;
+	}
+	legend {
+		padding: 0 6px;
+		font-size: 13px;
+		color: #aaa;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	label {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin: 10px 0;
+		font-size: 14px;
+	}
+	label span.name { flex: 0 0 70px; }
+	label span.value { flex: 0 0 44px; text-align: right; color: #9cf; }
+	input[type="range"] { flex: 1; }
+	input[type="text"], select {
+		width: 100%;
+		background: #1c1c1c;
+		color: #eee;
+		border: 1px solid #333;
+		border-radius: 6px;
+		padding: 8px;
+		font-size: 14px;
+		box-sizing: border-box;
+	}
+	.row { margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<h1>MMM-Earth3D — Live Control</h1>
+<div class="status" id="status"></div>
+
+<fieldset>
+	<legend>Connection</legend>
+	<div class="row">
+		<input type="text" id="apiKey" placeholder="MMM-Remote-Control API key">
+	</div>
+</fieldset>
+
+<fieldset>
+	<legend>Rotation</legend>
+	<label>
+		<span class="name">Speed</span>
+		<input type="range" id="rotationSpeed" min="0" max="100" value="20">
+		<span class="value" id="rotationSpeed-val">20</span>
+	</label>
+</fieldset>
+
+<fieldset>
+	<legend>Camera</legend>
+	<label>
+		<span class="name">Zoom</span>
+		<input type="range" id="zoom" min="0" max="100" value="50">
+		<span class="value" id="zoom-val">50</span>
+	</label>
+</fieldset>
+
+<fieldset>
+	<legend>Fixed rotate (degrees)</legend>
+	<label>
+		<span class="name">X</span>
+		<input type="range" id="rotateX" min="0" max="360" value="0">
+		<span class="value" id="rotateX-val">0</span>
+	</label>
+	<label>
+		<span class="name">Y</span>
+		<input type="range" id="rotateY" min="0" max="360" value="0">
+		<span class="value" id="rotateY-val">0</span>
+	</label>
+	<label>
+		<span class="name">Z</span>
+		<input type="range" id="rotateZ" min="0" max="360" value="0">
+		<span class="value" id="rotateZ-val">0</span>
+	</label>
+</fieldset>
+
+<fieldset>
+	<legend>Position (scene units, not pixels)</legend>
+	<label>
+		<span class="name">X</span>
+		<input type="range" id="positionX" min="-200" max="200" value="0">
+		<span class="value" id="positionX-val">0</span>
+	</label>
+	<label>
+		<span class="name">Y</span>
+		<input type="range" id="positionY" min="-200" max="200" value="0">
+		<span class="value" id="positionY-val">0</span>
+	</label>
+	<label>
+		<span class="name">Z</span>
+		<input type="range" id="positionZ" min="-200" max="200" value="0">
+		<span class="value" id="positionZ-val">0</span>
+	</label>
+</fieldset>
+
+<fieldset>
+	<legend>Quality</legend>
+	<div class="row">
+		<select id="quality">
+			<option value="low">Low</option>
+			<option value="medium">Medium</option>
+			<option value="high" selected>High</option>
+			<option value="ultra">Ultra</option>
+		</select>
+	</div>
+</fieldset>
+
+<script>
+(function () {
+	"use strict";
+
+	const statusEl = document.getElementById("status");
+	const apiKeyEl = document.getElementById("apiKey");
+	apiKeyEl.value = localStorage.getItem("earth3d-apiKey") || "";
+	apiKeyEl.addEventListener("change", () => {
+		localStorage.setItem("earth3d-apiKey", apiKeyEl.value);
+	});
+
+	let debounceTimer = null;
+
+	function send (payload) {
+		clearTimeout(debounceTimer);
+		debounceTimer = setTimeout(() => {
+			const apiKey = encodeURIComponent(apiKeyEl.value);
+			fetch(`/api/notification/EARTH3D_SET_CONFIG?apiKey=${apiKey}`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(payload)
+			})
+				.then((res) => res.json())
+				.then((data) => {
+					if (data.success === false) {
+						setStatus(data.message || "Request failed", true);
+					} else {
+						setStatus("Updated " + new Date().toLocaleTimeString());
+					}
+				})
+				.catch((err) => setStatus(err.message, true));
+		}, 120);
+	}
+
+	function setStatus (message, isError) {
+		statusEl.textContent = message;
+		statusEl.className = "status" + (isError ? " error" : "");
+	}
+
+	function bindSlider (id, onChange) {
+		const input = document.getElementById(id);
+		const valueEl = document.getElementById(id + "-val");
+		input.addEventListener("input", () => {
+			valueEl.textContent = input.value;
+			onChange(Number(input.value));
+		});
+	}
+
+	bindSlider("rotationSpeed", (value) => send({ rotationSpeed: value }));
+	bindSlider("zoom", (value) => send({ camera: { zoom: value } }));
+	bindSlider("rotateX", (value) => send({ camera: { rotate: { x: value } } }));
+	bindSlider("rotateY", (value) => send({ camera: { rotate: { y: value } } }));
+	bindSlider("rotateZ", (value) => send({ camera: { rotate: { z: value } } }));
+	bindSlider("positionX", (value) => send({ camera: { position: { x: value } } }));
+	bindSlider("positionY", (value) => send({ camera: { position: { y: value } } }));
+	bindSlider("positionZ", (value) => send({ camera: { position: { z: value } } }));
+
+	document.getElementById("quality").addEventListener("change", (event) => {
+		send({ quality: event.target.value });
+	});
+})();
+</script>
+
+</body>
+</html>
