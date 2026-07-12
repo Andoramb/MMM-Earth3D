@@ -35,16 +35,28 @@ textures are vendored under `public/` so the module has no runtime CDN dependenc
 	config: {
 		width: 500,
 		height: 500,
-		rotationSpeed: 0.3
+		rotationSpeed: 20,
+		camera: {
+			zoom: 50,
+			rotate: { x: 0, y: 0, z: 0 },
+			position: { x: 0, y: 0, z: 0 }
+		},
+		quality: "high"
 	}
 }
 ```
 
-| Option          | Type   | Default | Description                                  |
-| ---------------- | ------ | ------- | --------------------------------------------- |
-| `width`          | number | `500`   | Width of the globe canvas in pixels.           |
-| `height`          | number | `500`   | Height of the globe canvas in pixels.          |
-| `rotationSpeed`   | number | `0.3`   | Auto-rotation speed of the globe (maps to globe.gl's `autoRotateSpeed`). |
+| Option                | Type   | Default | Description |
+| ---------------------- | ------ | ------- | ----------- |
+| `width`                 | number | `500`   | Width of the globe canvas in pixels. |
+| `height`                 | number | `500`   | Height of the globe canvas in pixels. |
+| `rotationSpeed`          | number | `20`    | Auto-rotation (spin) speed, `0` (stopped) to `100` (fast). Always spins around the globe's vertical axis. |
+| `camera.zoom`            | number | `50`    | Camera distance, `0` (close) to `100` (far). Needs fine-tuning by eye once visible. |
+| `camera.rotate.x/y/z`    | number | `0`     | Fixed tilt of the globe's resting orientation, in degrees (`0`-`360`). Independent of `rotationSpeed` — the globe spins while sitting at this tilt. |
+| `camera.position.x/y/z`  | number | `0`     | Offset of the globe within the scene. Units are **3D scene units, not CSS pixels** (globe radius = 100 units) — there's no literal pixel mapping in a 3D perspective view, so this also needs fine-tuning by eye. |
+| `quality`                | string | `"high"` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` — trades render cost for realism: texture resolution (2k/2k/4k/8k), sphere smoothness, antialiasing, and display pixel ratio. Use a lower tier when zoomed out or on constrained hardware (e.g. Raspberry Pi), higher when zoomed in. |
+
+Earth textures are sourced from [Solar System Scope](https://www.solarsystemscope.com/textures/) (2k/8k daymaps, CC BY 4.0) and [three-globe](https://github.com/vasturiano/three-globe)'s example assets (4k daymap, bump map).
 
 ## License
 

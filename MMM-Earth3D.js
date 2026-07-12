@@ -9,13 +9,28 @@ Module.register("MMM-Earth3D", {
 	defaults: {
 		width: 500,
 		height: 500,
-		rotationSpeed: 0.3
+
+		rotationSpeed: 20, // 0-100, spin speed around the globe's vertical axis
+
+		camera: {
+			zoom: 50, // 0-100, 0 = close, 100 = far
+			rotate: { x: 0, y: 0, z: 0 }, // degrees, fixed tilt of the globe's resting orientation
+			position: { x: 0, y: 0, z: 0 } // scene-unit offset (globe radius = 100 units, not CSS pixels)
+		},
+
+		quality: "high" // low | medium | high | ultra
 	},
 
 	renderer: null,
 
 	start: function () {
 		Log.info("Starting module: " + this.name);
+		// MM's default config merge is shallow, so a user overriding only
+		// e.g. camera.zoom would otherwise silently drop rotate/position.
+		this.config.camera = Object.assign({}, this.defaults.camera, this.config.camera, {
+			rotate: Object.assign({}, this.defaults.camera.rotate, (this.config.camera || {}).rotate),
+			position: Object.assign({}, this.defaults.camera.position, (this.config.camera || {}).position)
+		});
 	},
 
 	getStyles: function () {
