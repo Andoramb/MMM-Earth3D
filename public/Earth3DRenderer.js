@@ -7,12 +7,15 @@
  * live data overlays) grow here without touching MM lifecycle code.
  */
 
-// rotationSpeed config (0-100) maps onto globe.gl's raw autoRotateSpeed range.
-const ROTATION_SPEED_MAX = 10;
+// rotationSpeed config (0-100) maps onto degrees/second of manual spin.
+const ROTATION_SPEED_MAX_DEG_PER_SEC = 30; // 100 -> full revolution every 12s
 
 // camera.zoom config (0-100) maps onto pointOfView's altitude (globe radii).
 const ZOOM_ALTITUDE_MIN = 0.5; // 0   -> close
 const ZOOM_ALTITUDE_MAX = 5; // 100 -> far
+
+// Live config changes ease in over this long instead of jumping.
+const TRANSITION_MS = 700;
 
 // quality presets: texture resolution, sphere tessellation (lower
 // curvatureResolution = more polygons = smoother), antialiasing (renderer
@@ -24,6 +27,41 @@ const QUALITY_PRESETS = {
 	ultra: { textureUrl: "img/earth-8k.jpg", curvatureResolution: 1, antialias: true, maxPixelRatio: 3 }
 };
 
+// Eases a single number from its current value to a target over a fixed
+// duration. Used for every live-tunable property so changes glide in
+// smoothly instead of jumping.
+class TweenedValue {
+	constructor(initial) {
+		this.current = initial;
+		this.from = initial;
+		this.to = initial;
+		this.startTime = 0;
+		this.duration = 0;
+	}
+
+	setTarget(value, durationMs) {
+		if (value === this.to) {
+			return;
+		}
+		this.from = this.current;
+		this.to = value;
+		this.startTime = performance.now();
+		this.duration = durationMs;
+	}
+
+	update(now) {
+		if (this.duration <= 0) {
+			this.current = this.to;
+			return;
+		}
+		const t = Math.min((now - this.startTime) / this.duration, 1);
+		this.current = this.from + (this.to - this.from) * easeInOutCubic(t);
+		if (t >= 1) {
+			this.duration = 0;
+		}
+	}
+}
+
 class Earth3DRenderer {
 	constructor(container, config) {
 		this.container = container;
@@ -31,6 +69,19 @@ class Earth3DRenderer {
 		this.globe = null;
 		this.globeObject3D = null;
 		this.destroyed = false;
+		this.animating = false;
+
+		const { rotate, position } = config.camera;
+		this.tiltX = new TweenedValue(rotate.x);
+		this.tiltY = new TweenedValue(rotate.y);
+		this.tiltZ = new TweenedValue(rotate.z);
+		this.posX = new TweenedValue(position.x);
+		this.posY = new TweenedValue(position.y);
+		this.posZ = new TweenedValue(position.z);
+		this.spinRate = new TweenedValue(rotationSpeedToDegPerSec(config.rotationSpeed));
+		this.spinAngle = 0;
+		this.lastFrameTime = null;
+
 		this.init();
 	}
 
@@ -53,30 +104,51 @@ class Earth3DRenderer {
 		this.globe.renderer().setPixelRatio(Math.min(quality.maxPixelRatio, window.devicePixelRatio));
 
 		const controls = this.globe.controls();
-		controls.autoRotate = true;
+		// Spin is applied manually each frame (see tick()) around the globe's
+		// own local axis, so it correctly follows any fixed tilt. OrbitControls'
+		// built-in autoRotate always orbits the camera around the world's
+		// vertical axis instead, which looks wrong once the globe is tilted.
+		controls.autoRotate = false;
 		controls.enableZoom = false;
-		this.applyRotationSpeed();
+
 		this.applyZoom();
 
 		// The globe mesh isn't added to the scene synchronously (globe.gl
 		// debounces its internal update digest), so poll until it appears.
 		this.waitForGlobeObject();
+
+		if (!this.animating) {
+			this.animating = true;
+			requestAnimationFrame((now) => this.tick(now));
+		}
 	}
 
 	// Live-update entry points: config is shared by reference with the
 	// MMM-Earth3D module instance, so callers mutate this.config first and
-	// then call the matching apply*() to push it onto the live globe.gl scene.
+	// then call the matching apply*() to ease the live globe.gl scene toward it.
 
 	applyRotationSpeed() {
-		this.globe.controls().autoRotateSpeed = (clamp(this.config.rotationSpeed, 0, 100) / 100) * ROTATION_SPEED_MAX;
+		this.spinRate.setTarget(rotationSpeedToDegPerSec(this.config.rotationSpeed), TRANSITION_MS);
 	}
 
 	applyZoom() {
-		this.globe.pointOfView({ altitude: this.zoomToAltitude(this.config.camera.zoom) }, 400);
+		this.globe.pointOfView({ altitude: this.zoomToAltitude(this.config.camera.zoom) }, TRANSITION_MS);
+	}
+
+	applyGlobeTransform() {
+		const { rotate, position } = this.config.camera;
+		this.tiltX.setTarget(rotate.x, TRANSITION_MS);
+		this.tiltY.setTarget(rotate.y, TRANSITION_MS);
+		this.tiltZ.setTarget(rotate.z, TRANSITION_MS);
+		this.posX.setTarget(position.x, TRANSITION_MS);
+		this.posY.setTarget(position.y, TRANSITION_MS);
+		this.posZ.setTarget(position.z, TRANSITION_MS);
 	}
 
 	// Antialiasing is a WebGLRenderer construction option and can't be
 	// changed on an existing context, so quality changes rebuild the globe.
+	// Tween/spin state is left untouched so tilt/position/rotation continue
+	// smoothly across the rebuild.
 	applyQuality() {
 		if (this.globe) {
 			this.globe._destructor();
@@ -101,27 +173,43 @@ class Earth3DRenderer {
 		const globeObject = this.globe.scene().children.find((child) => child.type === "Group");
 		if (globeObject) {
 			this.globeObject3D = globeObject;
-			this.applyGlobeTransform();
 		} else {
 			requestAnimationFrame(() => this.waitForGlobeObject());
 		}
 	}
 
-	applyGlobeTransform() {
-		if (!this.globeObject3D) {
-			// Not resolved yet - the pending waitForGlobeObject() poll will
-			// call this again once it is, picking up the latest config.
+	tick(now) {
+		if (this.destroyed) {
+			this.animating = false;
 			return;
 		}
-		const { rotate, position } = this.config.camera;
-		this.globeObject3D.rotation.set(degToRad(rotate.x), degToRad(rotate.y), degToRad(rotate.z));
-		this.globeObject3D.position.set(position.x, position.y, position.z);
 
-		// Keep the camera orbiting around the globe's new position, not the
-		// original scene origin, so auto-rotation still looks centered.
-		const controls = this.globe.controls();
-		controls.target.copy(this.globeObject3D.position);
-		controls.update();
+		const deltaSeconds = this.lastFrameTime !== null ? (now - this.lastFrameTime) / 1000 : 0;
+		this.lastFrameTime = now;
+
+		this.tiltX.update(now);
+		this.tiltY.update(now);
+		this.tiltZ.update(now);
+		this.posX.update(now);
+		this.posY.update(now);
+		this.posZ.update(now);
+		this.spinRate.update(now);
+		this.spinAngle += degToRad(this.spinRate.current) * deltaSeconds;
+
+		if (this.globeObject3D) {
+			// Reset to the (tweened) fixed tilt, then apply the total
+			// accumulated spin as a local-axis rotation on top of it, so the
+			// spin always turns around the globe's own (tilted) polar axis.
+			this.globeObject3D.rotation.set(degToRad(this.tiltX.current), degToRad(this.tiltY.current), degToRad(this.tiltZ.current));
+			this.globeObject3D.rotateY(this.spinAngle);
+			this.globeObject3D.position.set(this.posX.current, this.posY.current, this.posZ.current);
+
+			// Keep the camera's orbit target on the globe's current position
+			// so manual dragging (if enabled later) stays centered on it.
+			this.globe.controls().target.set(this.posX.current, this.posY.current, this.posZ.current);
+		}
+
+		requestAnimationFrame((t) => this.tick(t));
 	}
 
 	assetPath(relativePath) {
@@ -138,10 +226,18 @@ class Earth3DRenderer {
 	}
 }
 
+function rotationSpeedToDegPerSec(speed) {
+	return (clamp(speed, 0, 100) / 100) * ROTATION_SPEED_MAX_DEG_PER_SEC;
+}
+
 function degToRad(deg) {
 	return (deg * Math.PI) / 180;
 }
 
 function clamp(value, min, max) {
 	return Math.min(max, Math.max(min, value));
+}
+
+function easeInOutCubic(t) {
+	return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }

@@ -50,7 +50,7 @@ textures are vendored under `public/` so the module has no runtime CDN dependenc
 | ---------------------- | ------ | ------- | ----------- |
 | `width`                 | number | `500`   | Width of the globe canvas in pixels. |
 | `height`                 | number | `500`   | Height of the globe canvas in pixels. |
-| `rotationSpeed`          | number | `20`    | Auto-rotation (spin) speed, `0` (stopped) to `100` (fast). Always spins around the globe's vertical axis. |
+| `rotationSpeed`          | number | `20`    | Spin speed, `0` (stopped) to `100` (fast, ~12s/revolution). Always spins around the globe's own polar axis, so it stays correct even when `camera.rotate` tilts the globe. |
 | `camera.zoom`            | number | `50`    | Camera distance, `0` (close) to `100` (far). Needs fine-tuning by eye once visible. |
 | `camera.rotate.x/y/z`    | number | `0`     | Fixed tilt of the globe's resting orientation, in degrees (`0`-`360`). Independent of `rotationSpeed` — the globe spins while sitting at this tilt. |
 | `camera.position.x/y/z`  | number | `0`     | Offset of the globe within the scene. Units are **3D scene units, not CSS pixels** (globe radius = 100 units) — there's no literal pixel mapping in a 3D perspective view, so this also needs fine-tuning by eye. |
@@ -63,8 +63,9 @@ Earth textures are sourced from [Solar System Scope](https://www.solarsystemscop
 `rotationSpeed`, `camera.zoom`, `camera.rotate`, `camera.position`, and `quality`
 can all be changed on the running globe without editing `config.js` or restarting
 MagicMirror, by sending an `EARTH3D_SET_CONFIG` notification with a partial config
-object as payload. Quality changes rebuild the WebGL context (antialiasing can't
-be toggled live), so they take a moment; everything else updates instantly.
+object as payload. Every property eases smoothly to its new value over ~0.7s
+instead of jumping, except `quality`, which rebuilds the WebGL context
+(antialiasing can't be toggled live) and so changes instantly/abruptly.
 
 This requires [MMM-Remote-Control](https://github.com/Jopyth/MMM-Remote-Control)
 to be installed, since it exposes the generic notification API used to deliver it:
