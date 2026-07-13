@@ -121,27 +121,28 @@ Module.register("MMM-Earth3D", {
 	// unrecognized extension silently no-ops with no error. Earth3DRenderer.js
 	// loads all of them itself via dynamic import(), which works identically
 	// on every MM core version.
-	// Every returned URL gets a "?v=" cache-buster (same value stashed on
-	// this.cacheBust, below, for Earth3DRenderer.js's own dynamic import()
-	// calls to reuse) - a plain browser reload doesn't guarantee a fresh
-	// fetch of these otherwise (observed in practice: a vendored file that's
-	// never changed across several deploys - suncalc.js - kept getting served
-	// from a stale cache on one browser well after a hard refresh, while a
-	// freshly-launched kiosk browser fetched everything cleanly). A changed
-	// query string is always a cache miss regardless of Cache-Control/ETag,
-	// so this forces every script fresh on every module (re)initialization.
+	// NOTE: do NOT append a "?v=" cache-buster to any of these URLs (tried,
+	// reverted) - MM core's own js/loader.js determines script vs style
+	// purely by fileName.slice(fileName.lastIndexOf(".") + 1), i.e.
+	// "whatever comes after the LAST dot in the string". A query string
+	// after ".js" makes that come out as "js?v=169..." which matches
+	// neither its "js" nor "mjs" case, so the loader silently never even
+	// creates the <script> tag - this took the whole module down (Earth3DRenderer
+	// undefined) rather than just failing to cache-bust. this.cacheBust is
+	// still set here (used by Earth3DRenderer.js's own dynamic import() of
+	// CloudsLayer.mjs, which bypasses this loader entirely and isn't
+	// affected by its extension-sniffing).
 	getScripts: function () {
 		this.cacheBust = Date.now();
-		const v = "?v=" + this.cacheBust;
 		return [
-			this.file("public/vendor/suncalc.js") + v,
-			this.file("presets/atmosphere.js") + v,
-			this.file("presets/earthTextures.js") + v,
-			this.file("presets/camera.js") + v,
-			this.file("presets/themes.js") + v,
-			this.file("presets/themes-user.js") + v,
-			this.file("public/EarthCompositor.js") + v,
-			this.file("public/Earth3DRenderer.js") + v
+			this.file("public/vendor/suncalc.js"),
+			this.file("presets/atmosphere.js"),
+			this.file("presets/earthTextures.js"),
+			this.file("presets/camera.js"),
+			this.file("presets/themes.js"),
+			this.file("presets/themes-user.js"),
+			this.file("public/EarthCompositor.js"),
+			this.file("public/Earth3DRenderer.js")
 		];
 	},
 
