@@ -192,9 +192,7 @@ class Earth3DRenderer {
 
 		this.applyZoom();
 
-		if (!this.cloudsLayer) {
-			this.cloudsLayer = new CloudsLayer(GLOBE_RADIUS);
-		}
+		this.ensureCloudsLayer();
 
 		if (!this.compositor) {
 			this.compositor = new EarthCompositor(
@@ -205,11 +203,9 @@ class Earth3DRenderer {
 					}
 				},
 				(image) => {
-					this.cloudsLayer.setTexture(image);
-					this.cloudsLayer.setOpacity(this.config.clouds.opacity);
-					this.cloudsLayer.setVisible(this.config.clouds.enabled);
-					if (this.globeObject3D) {
-						this.cloudsLayer.attachTo(this.globeObject3D);
+					this.pendingCloudsImage = image;
+					if (this.cloudsLayer) {
+						this.applyCloudsImage(image);
 					}
 				},
 				(path) => this.assetPath(path)
@@ -311,8 +307,10 @@ class Earth3DRenderer {
 	}
 
 	applyClouds() {
-		this.cloudsLayer.setOpacity(this.config.clouds.opacity);
-		this.cloudsLayer.setVisible(this.config.clouds.enabled);
+		if (this.cloudsLayer) {
+			this.cloudsLayer.setOpacity(this.config.clouds.opacity);
+			this.cloudsLayer.setVisible(this.config.clouds.enabled);
+		}
 		this.compositor.applyCloudsConfig();
 	}
 
@@ -346,6 +344,43 @@ class Earth3DRenderer {
 		return ZOOM_ALTITUDE_MIN + t * (ZOOM_ALTITUDE_MAX - ZOOM_ALTITUDE_MIN);
 	}
 
+	// CloudsLayer.mjs is an ES module (it needs a real Three.js import, unlike
+	// the other classic-script assets), loaded via MM's getScripts() like
+	// everything else. Its own top-level code assigns window.CloudsLayer as
+	// its last statement, which should only run once its module graph has
+	// fully evaluated - but dynamically-inserted `type="module"` scripts
+	// don't reliably fire `load` only after evaluation completes across
+	// engines, so CloudsLayer can still be undefined here. Poll instead of
+	// constructing it synchronously, so a slow/late module load degrades to
+	// "clouds appear a moment later" instead of throwing and aborting the
+	// rest of init() (texture, resize tracking, the tick loop - none of
+	// which have anything to do with clouds).
+	ensureCloudsLayer() {
+		if (this.cloudsLayer || this.destroyed) {
+			return;
+		}
+		if (typeof CloudsLayer === "undefined") {
+			requestAnimationFrame(() => this.ensureCloudsLayer());
+			return;
+		}
+		this.cloudsLayer = new CloudsLayer(GLOBE_RADIUS);
+		if (this.pendingCloudsImage) {
+			this.applyCloudsImage(this.pendingCloudsImage);
+		}
+		if (this.globeObject3D) {
+			this.cloudsLayer.attachTo(this.globeObject3D);
+		}
+	}
+
+	applyCloudsImage(image) {
+		this.cloudsLayer.setTexture(image);
+		this.cloudsLayer.setOpacity(this.config.clouds.opacity);
+		this.cloudsLayer.setVisible(this.config.clouds.enabled);
+		if (this.globeObject3D) {
+			this.cloudsLayer.attachTo(this.globeObject3D);
+		}
+	}
+
 	waitForGlobeObject() {
 		if (this.destroyed) {
 			return;
@@ -356,7 +391,9 @@ class Earth3DRenderer {
 		const globeObject = this.globe.scene().children.find((child) => child.type === "Group");
 		if (globeObject) {
 			this.globeObject3D = globeObject;
-			this.cloudsLayer.attachTo(globeObject);
+			if (this.cloudsLayer) {
+				this.cloudsLayer.attachTo(globeObject);
+			}
 		} else {
 			requestAnimationFrame(() => this.waitForGlobeObject());
 		}
@@ -379,7 +416,9 @@ class Earth3DRenderer {
 		this.posZ.update(now);
 		this.spinRate.update(now);
 		this.spinAngle += degToRad(this.spinRate.current) * deltaSeconds;
-		this.cloudsLayer.tick(now);
+		if (this.cloudsLayer) {
+			this.cloudsLayer.tick(now);
+		}
 
 		if (this.globeObject3D) {
 			// Reset to the (tweened) fixed tilt, then apply the total

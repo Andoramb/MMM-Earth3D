@@ -76,7 +76,7 @@ Module.register("MMM-Earth3D", {
 	},
 
 	getStyles: function () {
-		return ["MMM-Earth3D.css"];
+		return [this.file("css/MMM-Earth3D.css")];
 	},
 
 	getScripts: function () {
