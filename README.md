@@ -130,6 +130,15 @@ example combining all of this.
 3. The active `theme`'s value for that field, if a theme is set (literal or a referenced preset id, per above).
 4. The module default.
 
+**Switching `theme` via a live update clears every field the new theme sets**
+(unless that same update also sets the field directly), so picking a theme
+always gives you that theme's whole look - including a `config.js` value
+like `camera: { zoom: 80 }` that would otherwise permanently outrank every
+theme's camera settings by rule 1 above. This only applies to live theme
+switches; a `config.js` that sets both `theme` and an explicit field at
+startup still resolves via the order above (explicit wins), since that's a
+deliberate "use this theme but tweak one field" combination you wrote by hand.
+
 This is what makes `{ theme: "close-up", atmosphere: { altitude: 0.22 } }`
 work as "use the close-up theme, but tweak just this one field" instead of
 having to duplicate the whole theme as a custom preset.

@@ -446,13 +446,41 @@ Module.register("MMM-Earth3D", {
 	//   POST /api/notification/EARTH3D_SET_CONFIG  { "camera": { "zoom": 30 } }
 	// Either way, payloads like { "theme": "nasa" } switch the whole look at once.
 	applyLiveConfig: function (partial) {
+		const themeChanged = partial.theme !== undefined;
+
+		// Picking a theme is supposed to mean "give me that theme's whole
+		// look" - without this, a userOverride captured earlier (including
+		// an explicit value in config.js itself, captured once at startup by
+		// captureUserOverrides()) would silently keep outranking the theme
+		// for every field it sets, forever, since an override always wins
+		// over a theme by design. That defeats the point of switching
+		// themes: e.g. a config.js that sets camera.rotate/zoom just to have
+		// a sane initial framing would otherwise permanently block every
+		// theme from ever changing the camera again. Only clear a field's
+		// override if THIS SAME payload isn't also setting it directly, so
+		// "{theme: x, camera: {...}}" (tweak one thing on top of a theme)
+		// still works as documented.
+		if (themeChanged) {
+			if (partial.rotationSpeed === undefined) {
+				this.userOverrides.rotationSpeed = undefined;
+			}
+			if (partial.quality === undefined) {
+				this.userOverrides.quality = undefined;
+			}
+			["atmosphere", "texture", "camera", "dayNight", "clouds"].forEach((key) => {
+				if (partial[key] === undefined) {
+					this.userOverrides[key] = null;
+				}
+			});
+		}
+
 		if (partial.rotationSpeed !== undefined) {
 			this.userOverrides.rotationSpeed = partial.rotationSpeed === null ? undefined : partial.rotationSpeed;
 		}
 		if (partial.quality !== undefined) {
 			this.userOverrides.quality = partial.quality === null ? undefined : partial.quality;
 		}
-		if (partial.theme !== undefined) {
+		if (themeChanged) {
 			this.config.theme = partial.theme;
 		}
 
@@ -461,7 +489,6 @@ Module.register("MMM-Earth3D", {
 		const cameraChanged = Boolean(partial.camera);
 		const dayNightChanged = Boolean(partial.dayNight);
 		const cloudsChanged = Boolean(partial.clouds);
-		const themeChanged = partial.theme !== undefined;
 
 		this.debugLog("applyLiveConfig flags", { themeChanged, atmosphereChanged, textureChanged, cameraChanged, dayNightChanged, cloudsChanged, rotationSpeedChanged: partial.rotationSpeed !== undefined, qualityChanged: partial.quality !== undefined });
 
