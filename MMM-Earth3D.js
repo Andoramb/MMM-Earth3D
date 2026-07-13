@@ -132,10 +132,17 @@ Module.register("MMM-Earth3D", {
 	// still set here (used by Earth3DRenderer.js's own dynamic import() of
 	// CloudsLayer.mjs, which bypasses this loader entirely and isn't
 	// affected by its extension-sniffing).
+	//
+	// "suncalc.js" (bare, no this.file() path) is intentional, not a
+	// leftover - it's a key in MM core's own js/vendor.js registry (MM's own
+	// module-development docs use "moment.js" as their example of exactly
+	// this), so this reuses the same window.SunCalc (the real upstream npm
+	// package) MM core's own default clock/weather modules already load,
+	// instead of vendoring and shipping a duplicate copy ourselves.
 	getScripts: function () {
 		this.cacheBust = Date.now();
 		return [
-			this.file("public/vendor/suncalc.js"),
+			"suncalc.js",
 			this.file("presets/atmosphere.js"),
 			this.file("presets/earthTextures.js"),
 			this.file("presets/camera.js"),
