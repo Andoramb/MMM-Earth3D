@@ -391,10 +391,26 @@ Module.register("MMM-Earth3D", {
 		}
 	},
 
-	// Live-tunes the running globe without a page reload. Send this
-	// notification from a MMM-Remote-Control custom notification, e.g.:
-	// POST /api/notification/EARTH3D_SET_CONFIG  { "camera": { "zoom": 30 } }
-	// or { "theme": "nasa" } to switch the whole look at once.
+	// Same live-tune entry point as notificationReceived's EARTH3D_SET_CONFIG
+	// case, but arriving from this module's own node_helper (POST
+	// /MMM-Earth3D/set-config) instead of MM's core notification bus - this is
+	// what control.html actually uses, so tuning doesn't depend on a separate
+	// module like MMM-Remote-Control being installed and configured.
+	socketNotificationReceived: function (notification, payload) {
+		if (notification === "EARTH3D_SET_CONFIG" && this.renderer) {
+			this.applyLiveConfig(payload || {});
+		}
+	},
+
+	// Live-tunes the running globe without a page reload. Reachable two ways:
+	// this module's own node_helper at POST /MMM-Earth3D/set-config (what
+	// control.html uses, no auth/dependencies required), e.g.:
+	//   curl -X POST http://<mirror-host>:8080/MMM-Earth3D/set-config \
+	//     -H "content-type: application/json" -d '{"camera": {"zoom": 30}}'
+	// or, if you already have MMM-Remote-Control installed, its generic
+	// notification API works too:
+	//   POST /api/notification/EARTH3D_SET_CONFIG  { "camera": { "zoom": 30 } }
+	// Either way, payloads like { "theme": "nasa" } switch the whole look at once.
 	applyLiveConfig: function (partial) {
 		if (partial.rotationSpeed !== undefined) {
 			this.userOverrides.rotationSpeed = partial.rotationSpeed === null ? undefined : partial.rotationSpeed;

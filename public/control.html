@@ -161,13 +161,6 @@
 		</p>
 
 		<fieldset>
-			<legend>Connection</legend>
-			<div class="row">
-				<input type="text" id="apiKey" placeholder="MMM-Remote-Control API key">
-			</div>
-		</fieldset>
-
-		<fieldset>
 			<legend>Theme</legend>
 			<div class="row">
 				<select id="theme">
@@ -351,11 +344,6 @@
 	};
 
 	const statusEl = document.getElementById("status");
-	const apiKeyEl = document.getElementById("apiKey");
-	apiKeyEl.value = localStorage.getItem("earth3d-apiKey") || "";
-	apiKeyEl.addEventListener("change", () => {
-		localStorage.setItem("earth3d-apiKey", apiKeyEl.value);
-	});
 
 	// --- Sidebar navigation -------------------------------------------------
 
@@ -375,19 +363,16 @@
 	function send (payload) {
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
-			const apiKey = encodeURIComponent(apiKeyEl.value);
-			fetch(`/api/notification/EARTH3D_SET_CONFIG?apiKey=${apiKey}`, {
+			fetch("/MMM-Earth3D/set-config", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(payload)
 			})
-				.then((res) => res.json())
-				.then((data) => {
-					if (data.success === false) {
-						setStatus(data.message || "Request failed", true);
-					} else {
-						setStatus("Updated " + new Date().toLocaleTimeString());
+				.then((res) => {
+					if (!res.ok) {
+						throw new Error("Request failed (" + res.status + ")");
 					}
+					setStatus("Updated " + new Date().toLocaleTimeString());
 				})
 				.catch((err) => setStatus(err.message, true));
 		}, 120);

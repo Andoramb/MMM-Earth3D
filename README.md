@@ -203,11 +203,11 @@ whatever you last set it to) by sending `null` for that field, e.g.
 `{"atmosphere": {"altitude": null}}` or `{"rotationSpeed": null}` - this is
 what the reset (↺) buttons in `control.html` do.
 
-This requires [MMM-Remote-Control](https://github.com/Jopyth/MMM-Remote-Control)
-to be installed, since it exposes the generic notification API used to deliver it:
+This module ships its own `node_helper.js` for this - no other module needs to be
+installed:
 
 ```bash
-curl -X POST "http://<mirror-host>:8080/api/notification/EARTH3D_SET_CONFIG?apiKey=<your-api-key>" \
+curl -X POST "http://<mirror-host>:8080/MMM-Earth3D/set-config" \
 	-H "content-type: application/json" \
 	-d '{"camera": {"zoom": 30}}'
 ```
@@ -215,9 +215,13 @@ curl -X POST "http://<mirror-host>:8080/api/notification/EARTH3D_SET_CONFIG?apiK
 For interactive tuning, open `public/control.html` from this module in a browser
 (e.g. `http://<mirror-host>:8080/modules/MMM-Earth3D/public/control.html`) — a
 small self-contained page with sliders for every option above, wired to the same
-API. Paste your MMM-Remote-Control API key into the field at the top; it's saved
-in the browser's local storage. This page is a standalone dev tool, not part of
-the MagicMirror module itself, so it isn't rendered on the mirror.
+endpoint. This page is a standalone dev tool, not part of the MagicMirror module
+itself, so it isn't rendered on the mirror.
+
+If you already have [MMM-Remote-Control](https://github.com/Jopyth/MMM-Remote-Control)
+installed, its generic notification API works too (`POST
+/api/notification/EARTH3D_SET_CONFIG?apiKey=<your-api-key>` with the same JSON
+body) - it's just not required anymore.
 
 ## License
 
