@@ -49,7 +49,9 @@ Module.register("MMM-Earth3D", {
 			enabled: false,
 			source: "static", // "static" (vendored Blue Marble clouds) | "realtime" (NASA GIBS, polled every 24h - that's how often the underlying satellite composite actually updates)
 			opacity: 0.8 // 0-1
-		}
+		},
+
+		debug: false // logs every live-config notification and apply*() call to the browser console via Log.info
 	},
 
 	// Every default field above (rotationSpeed, quality, atmosphere,
@@ -62,8 +64,26 @@ Module.register("MMM-Earth3D", {
 	renderer: null,
 	userOverrides: null,
 
+	debugLog: function () {
+		if (!this.config || !this.config.debug) {
+			return;
+		}
+		Log.info.apply(Log, ["[MMM-Earth3D:" + this.identifier + "]"].concat(Array.prototype.slice.call(arguments)));
+	},
+
 	start: function () {
 		Log.info("Starting module: " + this.name);
+
+		// MM's per-module socket (module.js's socket()) is created lazily and
+		// ONLY by calling sendSocketNotification() - since this module never
+		// sends anything to its node_helper (only receives EARTH3D_SET_CONFIG
+		// from it), that lazy socket was never created, so the node_helper's
+		// emit() went to a namespace with zero connected clients: no error on
+		// either side, the update just silently never arrived. Calling
+		// socket() directly establishes the connection (and registers
+		// socketNotificationReceived as its callback) without needing to
+		// actually send anything.
+		this.socket();
 
 		window.EARTH3D_PRESETS = window.EARTH3D_PRESETS || {};
 		window.EARTH3D_PRESETS.atmosphere = this.validatePresets(window.EARTH3D_PRESETS.atmosphere, "atmosphere", ["color", "altitude"]);
@@ -381,13 +401,14 @@ Module.register("MMM-Earth3D", {
 	// size, so the globe is built after MM's initial DOM pass completes.
 	notificationReceived: function (notification, payload) {
 		if (notification === "DOM_OBJECTS_CREATED") {
+			this.debugLog("DOM_OBJECTS_CREATED - constructing Earth3DRenderer");
 			const container = document.getElementById("earth3d-" + this.identifier);
 			this.renderer = new Earth3DRenderer(container, this.config);
 			return;
 		}
 
-		if (notification === "EARTH3D_SET_CONFIG" && this.renderer) {
-			this.applyLiveConfig(payload || {});
+		if (notification === "EARTH3D_SET_CONFIG") {
+			this.handleSetConfig("notification", payload);
 		}
 	},
 
@@ -397,9 +418,23 @@ Module.register("MMM-Earth3D", {
 	// what control.html actually uses, so tuning doesn't depend on a separate
 	// module like MMM-Remote-Control being installed and configured.
 	socketNotificationReceived: function (notification, payload) {
-		if (notification === "EARTH3D_SET_CONFIG" && this.renderer) {
-			this.applyLiveConfig(payload || {});
+		if (notification === "EARTH3D_SET_CONFIG") {
+			this.handleSetConfig("socket", payload);
 		}
+	},
+
+	// Shared by both delivery paths above. Logs receipt unconditionally (not
+	// just under config.debug) when the renderer isn't ready yet, since a
+	// dropped update is otherwise completely silent - no error, no visual
+	// change, nothing to go on - which is exactly the symptom this exists to
+	// catch.
+	handleSetConfig: function (via, payload) {
+		this.debugLog("EARTH3D_SET_CONFIG via " + via, JSON.stringify(payload), "renderer ready:", Boolean(this.renderer));
+		if (!this.renderer) {
+			Log.warn(this.name + ": EARTH3D_SET_CONFIG received via " + via + " before the renderer was ready - ignoring: " + JSON.stringify(payload));
+			return;
+		}
+		this.applyLiveConfig(payload || {});
 	},
 
 	// Live-tunes the running globe without a page reload. Reachable two ways:
@@ -429,6 +464,8 @@ Module.register("MMM-Earth3D", {
 		const cloudsChanged = Boolean(partial.clouds);
 		const themeChanged = partial.theme !== undefined;
 
+		this.debugLog("applyLiveConfig flags", { themeChanged, atmosphereChanged, textureChanged, cameraChanged, dayNightChanged, cloudsChanged, rotationSpeedChanged: partial.rotationSpeed !== undefined, qualityChanged: partial.quality !== undefined });
+
 		if (atmosphereChanged) {
 			this.mergeOverride("atmosphere", partial.atmosphere, []);
 		}
@@ -451,6 +488,7 @@ Module.register("MMM-Earth3D", {
 			|| dayNightChanged || cloudsChanged
 			|| partial.rotationSpeed !== undefined || partial.quality !== undefined) {
 			this.resolveConfig();
+			this.debugLog("resolved config after applyLiveConfig", JSON.stringify(this.config));
 		}
 
 		if (themeChanged || partial.rotationSpeed !== undefined) {

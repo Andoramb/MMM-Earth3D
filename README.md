@@ -85,6 +85,7 @@ textures are vendored under `public/` so the module has no runtime CDN dependenc
 | `clouds.enabled`         | boolean | `false` | Whether to show the cloud layer. |
 | `clouds.source`          | string | `"static"` | `"static"` (vendored Blue Marble clouds, no network) \| `"realtime"` (fetched from NASA GIBS, polled every 24h - see [Clouds](#daynight-and-clouds) below). Only used when `enabled` is `true`. |
 | `clouds.opacity`         | number | `0.8`   | `0` (invisible) to `1` (fully opaque). |
+| `debug`                  | boolean | `false` | Logs every live-config notification (arrival, resolved config, which `apply*()` calls fired) to the browser console via `Log.info`. The node_helper side always logs incoming `/MMM-Earth3D/set-config` requests regardless of this flag - useful for telling "never reached the server" apart from "arrived but the browser dropped it" when a live-tune silently does nothing. |
 
 ### Themes
 

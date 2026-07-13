@@ -233,16 +233,26 @@ class Earth3DRenderer {
 	// MMM-Earth3D module instance, so callers mutate this.config first and
 	// then call the matching apply*() to ease the live globe.gl scene toward it.
 
+	debugLog() {
+		if (!this.config || !this.config.debug) {
+			return;
+		}
+		Log.info.apply(Log, ["[MMM-Earth3D:Earth3DRenderer]"].concat(Array.prototype.slice.call(arguments)));
+	}
+
 	applyRotationSpeed() {
+		this.debugLog("applyRotationSpeed", this.config.rotationSpeed);
 		this.spinRate.setTarget(rotationSpeedToDegPerSec(this.config.rotationSpeed), TRANSITION_MS);
 	}
 
 	applyZoom() {
+		this.debugLog("applyZoom", this.config.camera.zoom);
 		this.globe.pointOfView({ altitude: this.zoomToAltitude(this.config.camera.zoom) }, TRANSITION_MS);
 	}
 
 	applyGlobeTransform() {
 		const { rotate, position } = this.config.camera;
+		this.debugLog("applyGlobeTransform", { rotate, position });
 		this.tiltX.setTarget(rotate.x, TRANSITION_MS);
 		this.tiltY.setTarget(rotate.y, TRANSITION_MS);
 		this.tiltZ.setTarget(rotate.z, TRANSITION_MS);
@@ -257,6 +267,7 @@ class Earth3DRenderer {
 	// smoothly across the rebuild. This also re-picks the texture resolution
 	// key (2k/4k/8k) matching the new quality tier.
 	applyQuality() {
+		this.debugLog("applyQuality", this.config.quality);
 		// Destroy cloudsLayer BEFORE the globe: its mesh is a child of the
 		// globe group, and globe._destructor() recursively disposes every
 		// child's geometry/material/texture (see three-render-objects'
@@ -283,6 +294,7 @@ class Earth3DRenderer {
 	applyAtmosphere() {
 		const { color, altitude, opacity } = this.config.atmosphere;
 		const visible = opacity > 0;
+		this.debugLog("applyAtmosphere", { color, altitude, opacity, visible });
 		this.globe.showAtmosphere(visible);
 		if (visible) {
 			this.globe.atmosphereColor(color).atmosphereAltitude(altitude);
@@ -294,6 +306,7 @@ class Earth3DRenderer {
 	// directly, since the night layer blends on top of it.
 	applyTexture() {
 		const textures = this.resolveTextureUrls();
+		this.debugLog("applyTexture", textures);
 		if (textures.bump) {
 			this.globe.bumpImageUrl(textures.bump);
 		}
@@ -302,11 +315,13 @@ class Earth3DRenderer {
 
 	// Live-update entry points for the day/night and clouds layers.
 	applyDayNight() {
+		this.debugLog("applyDayNight", this.config.dayNight);
 		this.compositor.scheduleDayNight();
 		this.compositor.recompute();
 	}
 
 	applyClouds() {
+		this.debugLog("applyClouds", this.config.clouds, "cloudsLayer ready:", Boolean(this.cloudsLayer));
 		if (this.cloudsLayer) {
 			this.cloudsLayer.setOpacity(this.config.clouds.opacity);
 			this.cloudsLayer.setVisible(this.config.clouds.enabled);

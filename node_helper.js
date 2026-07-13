@@ -1,5 +1,6 @@
 const NodeHelper = require("node_helper");
 const express = require("express");
+const Log = require("logger");
 
 /*
  * node_helper for MMM-Earth3D
@@ -18,6 +19,12 @@ const express = require("express");
 module.exports = NodeHelper.create({
 	start: function () {
 		this.expressApp.post("/MMM-Earth3D/set-config", express.json(), (req, res) => {
+			// Unconditional (not gated by config.debug - that's a client-side
+			// setting this server-side code has no visibility into anyway):
+			// low-frequency, and the single most useful line for telling "the
+			// request never reached the server" apart from "it arrived but the
+			// browser dropped it" when a live-tune silently does nothing.
+			Log.info("[MMM-Earth3D node_helper] set-config: " + JSON.stringify(req.body || {}));
 			this.sendSocketNotification("EARTH3D_SET_CONFIG", req.body || {});
 			res.json({ success: true });
 		});
