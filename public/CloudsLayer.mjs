@@ -48,6 +48,18 @@ const CLOUDS_VARIATION_PHASE_Y = Math.PI / 3;
 
 const SPHERE_SEGMENTS = 75;
 
+// three-globe's own globe mesh applies an internal rotation.y = -PI/2 to its
+// geometry ("face prime meridian along Z axis" - see its source), so real
+// longitude 0 ends up displayed along +Z, not along +X where a plain
+// (unrotated) THREE.SphereGeometry's own UV convention would put it. This
+// mesh has no such offset, so the shader's lat/lng derivation (see
+// onMaterialCompile() below) needs to apply the same +PI/2 correction
+// (inverse of the globe's -PI/2) before converting a normal to lat/lng, or
+// the night mask ends up rotated 90 degrees relative to the globe's actual
+// displayed day/night line. Verified numerically, not just by inspection -
+// see the commit that added this for the derivation.
+const GLOBE_ALIGNMENT_ROTATION_Y = Math.PI / 2;
+
 /*
  * Night-side darkening (see setNightMask() below) is applied as a shader
  * effect on this SAME mesh, rather than a second sphere - an earlier version
@@ -213,10 +225,13 @@ export class CloudsLayer {
 		// Keeps the night mask locked to true geography (see the comment
 		// above onMaterialCompile()) regardless of the independent parallax
 		// spin just applied above - cheap (once per frame, not per pixel).
+		// Composed with GLOBE_ALIGNMENT_ROTATION_Y (applied second, i.e. after
+		// undoing the parallax spin) to match three-globe's own internal
+		// globe-mesh rotation - see that constant's comment above.
 		if (this.shader) {
-			this.shader.uniforms.cloudRotation.value.setFromMatrix4(
-				new THREE.Matrix4().makeRotationFromEuler(this.mesh.rotation)
-			);
+			const spinMatrix = new THREE.Matrix4().makeRotationFromEuler(this.mesh.rotation);
+			const alignmentMatrix = new THREE.Matrix4().makeRotationY(GLOBE_ALIGNMENT_ROTATION_Y);
+			this.shader.uniforms.cloudRotation.value.setFromMatrix4(alignmentMatrix.multiply(spinMatrix));
 		}
 	}
 
