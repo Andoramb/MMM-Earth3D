@@ -10,8 +10,8 @@ Status: **under active development** (scaffold stage).
 - [x] Module scaffold
 - [x] Hello World validation
 - [x] globe.gl integration (Earth texture, atmosphere, auto-rotation)
-- [ ] Cloud layer
-- [ ] Day/night terminator
+- [x] Cloud layer (static Blue Marble + realtime NASA GIBS)
+- [x] Day/night terminator (realtime sun position + fixed custom angle)
 - [ ] City lights
 - [ ] Gothenburg location marker
 - [ ] Home Assistant MQTT data
@@ -31,41 +31,177 @@ textures are vendored under `public/` so the module has no runtime CDN dependenc
 ```js
 {
 	module: "MMM-Earth3D",
-	position: "middle_center",
+	position: "fullscreen_below",
 	config: {
-		width: 500,
-		height: 500,
 		rotationSpeed: 20,
+		theme: "custom",
+		atmosphere: {
+			preset: "custom",
+			color: "#4aa8ff",
+			altitude: 0.15,
+			opacity: 1
+		},
+		texture: {
+			preset: "blue-marble"
+		},
 		camera: {
+			preset: "custom",
 			zoom: 50,
 			rotate: { x: 0, y: 0, z: 0 },
 			position: { x: 0, y: 0, z: 0 }
 		},
-		quality: "high"
+		quality: "high",
+		dayNight: {
+			mode: "disabled",
+			rotate: 0
+		},
+		clouds: {
+			enabled: false,
+			source: "static",
+			pollInterval: "1h"
+		}
 	}
 }
 ```
 
 | Option                | Type   | Default | Description |
 | ---------------------- | ------ | ------- | ----------- |
-| `width`                 | number | `500`   | Width of the globe canvas in pixels. |
-| `height`                 | number | `500`   | Height of the globe canvas in pixels. |
-| `rotationSpeed`          | number | `20`    | Spin speed, `0` (stopped) to `100` (fast, ~12s/revolution). Always spins around the globe's own polar axis, so it stays correct even when `camera.rotate` tilts the globe. |
-| `camera.zoom`            | number | `50`    | Camera distance, `0` (close) to `100` (far). Needs fine-tuning by eye once visible. |
-| `camera.rotate.x/y/z`    | number | `0`     | Fixed tilt of the globe's resting orientation, in degrees (`0`-`360`). Independent of `rotationSpeed` — the globe spins while sitting at this tilt. |
-| `camera.position.x/y/z`  | number | `0`     | Offset of the globe within the scene. Units are **3D scene units, not CSS pixels** (globe radius = 100 units) — there's no literal pixel mapping in a 3D perspective view, so this also needs fine-tuning by eye. |
+| `width`                 | number | `null`  | Fixed width of the globe canvas in pixels. Leave unset (`null`) to auto-size: on a `fullscreen_above`/`fullscreen_below` position the globe fills the whole screen and tracks resizes automatically; on any other position, since normal MM regions don't give a WebGL canvas an intrinsic size to fill, it falls back to `500` with a console warning unless you set this explicitly. |
+| `height`                 | number | `null`  | Same as `width`, for the canvas height. Must be set together with `width` to force a fixed size - setting only one is ignored. |
+| `rotationSpeed`          | number | `20`    | Spin speed, `0` (stopped) to `100` (fast, ~36s/revolution). Always spins around the globe's own polar axis, so it stays correct even when `camera.rotate` tilts the globe. |
+| `theme`                  | string \| `"custom"` | `"custom"` | A theme id from `presets/themes.js` bundling atmosphere/texture/camera together, or `"custom"` to configure them individually below. See [Themes](#themes) for the full resolution order. |
+| `atmosphere.preset`      | string \| `"custom"` | `"custom"` | An id from `presets/atmosphere.js`, or `"custom"` for the fields below. |
+| `atmosphere.color`       | string | `"#4aa8ff"` | Atmosphere glow color. Only used when `preset` is `"custom"`. |
+| `atmosphere.altitude`    | number | `0.15`  | Atmosphere glow thickness (globe.gl's `atmosphereAltitude`, roughly `0`-`0.5`). Only used when `preset` is `"custom"`. |
+| `atmosphere.opacity`     | number | `1`     | `0` hides the atmosphere entirely, `>0` shows it. Not a native globe.gl concept - approximated as an on/off threshold rather than true alpha blending. Only used when `preset` is `"custom"`. |
+| `texture.preset`         | string \| `"custom"` | `"blue-marble"` | An id from `presets/earthTextures.js`, or `"custom"` with `texture.imageUrl` / `texture.bumpImageUrl` for your own fixed texture. |
+| `camera.preset`          | string \| `"custom"` | `"custom"` | An id from `presets/camera.js` (overrides zoom/rotate/position below), or `"custom"` to use those fields directly. |
+| `camera.zoom`            | number | `50`    | Camera distance, `0` (close) to `100` (far). Only used when `preset` is `"custom"`. Needs fine-tuning by eye once visible. |
+| `camera.rotate`          | `{x,y,z}` \| `[x,y,z]` | `{0,0,0}` | Fixed tilt of the globe's resting orientation, in degrees (`0`-`360`). Only used when `preset` is `"custom"`. Independent of `rotationSpeed` — the globe spins while sitting at this tilt. |
+| `camera.position`        | `{x,y,z}` \| `[x,y,z]` | `{0,0,0}` | Offset of the globe within the scene. Only used when `preset` is `"custom"`. Units are **3D scene units, not CSS pixels** (globe radius = 100 units) — there's no literal pixel mapping in a 3D perspective view, so this also needs fine-tuning by eye. |
 | `quality`                | string | `"high"` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` — trades render cost for realism: texture resolution (2k/2k/4k/8k), sphere smoothness, antialiasing, and display pixel ratio. Use a lower tier when zoomed out or on constrained hardware (e.g. Raspberry Pi), higher when zoomed in. |
+| `dayNight.mode`          | string | `"disabled"` | `"disabled"` \| `"realtime"` (actual sun position, recomputed every 5 min) \| `"custom"` (fixed terminator angle, no astronomy). |
+| `dayNight.rotate`        | number | `0`     | Terminator angle in degrees (`0`-`360`). Only used when `mode` is `"custom"`. |
+| `clouds.enabled`         | boolean | `false` | Whether to show the cloud layer. |
+| `clouds.source`          | string | `"static"` | `"static"` (vendored Blue Marble clouds, no network) \| `"realtime"` (fetched from NASA GIBS, polled every 24h - see [Clouds](#daynight-and-clouds) below). Only used when `enabled` is `true`. |
+| `clouds.opacity`         | number | `0.8`   | `0` (invisible) to `1` (fully opaque). |
+
+### Themes
+
+`presets/` is a visual asset registry, not just a camera-angle list — each
+file holds a numbered/named list of presets for one asset type:
+
+```
+MMM-Earth3D/
+├── presets/
+│   ├── atmosphere.js     # color, altitude, opacity
+│   ├── earthTextures.js  # texture image sets (per resolution tier)
+│   ├── stars.js          # reserved - not yet rendered
+│   ├── camera.js         # zoom, rotate, position
+│   └── themes.js         # named bundles covering every config field
+```
+
+`presets/themes.js` bundles settings under one name, so `config.theme =
+"nasa"` changes several things in one line instead of configuring each
+separately. Ships with five starter themes (`realistic`, `nasa`, `minimal`,
+`close-up`, `mission-control`) that only combine assets that actually exist
+today — see the note in that file about adding more once new texture assets
+(night lights, Mars, etc.) are vendored.
+
+**A theme can set literally any config field** — `rotationSpeed`, `quality`,
+`atmosphere`, `texture`, `camera`, `dayNight`, `clouds` — not just reference
+other presets by id. For `atmosphere`/`texture`/`camera`, a theme field can
+be either:
+- a **string**, referencing another preset's id (e.g. `camera: "close-up"`), or
+- an **object**, with literal values inline (e.g. `camera: { zoom: 30, rotate: [10, 0, 0] }`)
+
+Any field a theme doesn't mention falls back to its normal preset/default,
+exactly as if `theme` were `"custom"` for that one field. `rotate` and
+`position` accept either `{ x, y, z }` or the more compact `[x, y, z]` array
+form (any axis may be omitted) — this works everywhere those fields appear:
+`config.js`, preset files, theme files, and live `EARTH3D_SET_CONFIG`
+updates. See `presets/themes.js`'s `mission-control` entry for a worked
+example combining all of this.
+
+**Resolution order**, most to least authoritative, per field:
+1. An explicit raw value in `config.js` (e.g. `atmosphere: { altitude: 0.22 }`) or in a live `EARTH3D_SET_CONFIG` update.
+2. For `atmosphere`/`texture`/`camera`: that asset's own `preset` id, if set (e.g. `camera: { preset: "close-up" }`).
+3. The active `theme`'s value for that field, if a theme is set (literal or a referenced preset id, per above).
+4. The module default.
+
+This is what makes `{ theme: "nasa", atmosphere: { altitude: 0.22 } }` work
+as "use the nasa theme, but tweak just this one field" instead of having to
+duplicate the whole theme as a custom preset.
+
+Every preset and theme is validated once at startup - an entry missing a
+required field (or malformed) is dropped with a `Log.warn`, not a crash.
+Atmosphere/texture/camera preset schemas nest their fields under a key
+matching the config property they configure (e.g. `{ id, name, atmosphere:
+{ color, altitude, opacity } }`), so the renderer can safely ignore fields
+it doesn't use yet (like `opacity`'s blending) without a schema change
+later.
+
+`presets/stars.js` follows the same registry pattern and can already be
+referenced by a theme, but isn't wired to an actual renderer feature yet -
+pure scaffolding for a future starfield background. There's no
+`presets/clouds.js` — the real cloud layer (below) is a `clouds.*` config
+namespace, not a preset-registry asset, since it's fetched/composited
+rather than picked from a fixed style list; set it directly in a theme or
+config.js the same way as any other field, e.g. `clouds: { enabled: true }`.
 
 Earth textures are sourced from [Solar System Scope](https://www.solarsystemscope.com/textures/) (2k/8k daymaps, CC BY 4.0) and [three-globe](https://github.com/vasturiano/three-globe)'s example assets (4k daymap, bump map).
 
+### Day/Night and Clouds
+
+These two use different techniques, deliberately:
+
+**Day/Night** (`dayNight.mode`) blends a night-lights texture onto the day
+texture on an offscreen `<canvas>` (`public/EarthCompositor.js`), then hands
+the composited result to globe.gl as a single `globeImageUrl`. This avoids
+touching Three.js directly: the vendored `globe.gl.min.js` bundles its own
+internal copy that isn't exposed globally, and a flat terminator blend
+doesn't need real 3D geometry anyway - just per-pixel math.
+- `"realtime"` computes actual solar illumination using [SunCalc](https://github.com/mourner/suncalc) (vendored, pure date/time math, no network calls), recomputed every 5 minutes - plenty, since the terminator only moves ~0.25°/minute.
+- `"custom"` fixes the terminator at a single longitude set by `dayNight.rotate`, using the same rendering path but without any real astronomy.
+- `"disabled"` (default) skips this entirely - just the day texture, as before.
+
+**Clouds** (`clouds.*`) is a real second sphere (`public/CloudsLayer.mjs`),
+slightly larger than the globe and rotating independently, for a proper
+parallax effect - unlike day/night, this genuinely needs Three.js geometry
+(`SphereGeometry` + `MeshPhongMaterial` + `Mesh`), which the vendored
+`globe.gl.min.js` doesn't expose. So `CloudsLayer.mjs` is loaded as an ES
+module (`type="module"`, picked up from its `.mjs` extension) importing a
+separately-vendored Three.js build (`public/vendor/three.module.min.js` +
+`three.core.min.js`, same technique as [three-globe's own official clouds example](https://github.com/vasturiano/three-globe/tree/master/example/clouds)) and attaches its mesh as a child of the globe object.
+- `source: "static"` uses a vendored Blue Marble Next Generation cloud texture ([matteason/live-cloud-maps](https://github.com/matteason/live-cloud-maps), MIT, sourced from NASA imagery) - no network dependency.
+- `source: "realtime"` fetches a live image from [NASA GIBS](https://www.earthdata.nasa.gov/data/tools/worldview) via its [Worldview Snapshots API](https://wvs.earthdata.nasa.gov/), free, no API key, CORS-open. It's polled every 24 hours (hardcoded, not configurable) because that's how often the underlying MODIS satellite composite actually updates - confirmed against GIBS' own capabilities document, so polling more often would just re-fetch the same image. If the fetch fails (network issue, etc.), it silently falls back to the static texture rather than showing nothing.
+- `opacity` is the only clouds knob exposed as config; **size and rotation speed are constants in `public/CloudsLayer.mjs`**, at the top of the file:
+  ```js
+  const CLOUDS_ALTITUDE = 0.006; // how far above the globe surface, as a fraction of its radius
+  const CLOUDS_ROTATION_SPEED_X_DEG_PER_SEC = 0.3; // relative to the globe's own rotation
+  const CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC = 0.5;
+  ```
+  These aren't live-updatable config (a size/rotation change needs a page reload, not a `EARTH3D_SET_CONFIG` notification) since they're rarely-tweaked constants, not something you'd want a slider for.
+
 ## Live tuning (no restart or reload)
 
-`rotationSpeed`, `camera.zoom`, `camera.rotate`, `camera.position`, and `quality`
-can all be changed on the running globe without editing `config.js` or restarting
-MagicMirror, by sending an `EARTH3D_SET_CONFIG` notification with a partial config
-object as payload. Every property eases smoothly to its new value over ~0.7s
-instead of jumping, except `quality`, which rebuilds the WebGL context
-(antialiasing can't be toggled live) and so changes instantly/abruptly.
+`theme`, `rotationSpeed`, `atmosphere`, `texture`, `camera`, `quality`,
+`dayNight`, and `clouds` can all be changed on the running globe without
+editing `config.js` or restarting MagicMirror, by sending an
+`EARTH3D_SET_CONFIG` notification with a partial config object as payload -
+the same resolution order described above applies, so `{"theme": "nasa"}` or
+`{"camera": {"preset": "close-up"}}` or `{"atmosphere": {"altitude": 0.22}}`
+or `{"clouds": {"enabled": true, "source": "realtime"}}` are all valid on
+their own. Every camera/atmosphere/rotationSpeed property eases smoothly to
+its new value over ~0.7s instead of jumping; `quality` rebuilds the WebGL
+context (antialiasing can't be toggled live) and so changes instantly, and
+`dayNight`/`clouds` changes take effect on their next recompute (near-instant
+for mode/enabled changes, or the next successful fetch for clouds sources).
+
+Any field can be reset back to its theme/preset-derived value (instead of
+whatever you last set it to) by sending `null` for that field, e.g.
+`{"atmosphere": {"altitude": null}}` or `{"rotationSpeed": null}` - this is
+what the reset (↺) buttons in `control.html` do.
 
 This requires [MMM-Remote-Control](https://github.com/Jopyth/MMM-Remote-Control)
 to be installed, since it exposes the generic notification API used to deliver it:

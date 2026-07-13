@@ -1,4 +1,8 @@
-/* global Globe */
+/* global Globe, EarthCompositor, CloudsLayer */
+
+// Matches three-globe's internal GLOBE_RADIUS (world units) - needed here
+// so CloudsLayer can size its sphere relative to the actual globe surface.
+const GLOBE_RADIUS = 100;
 
 /*
  * Earth3DRenderer
@@ -8,7 +12,7 @@
  */
 
 // rotationSpeed config (0-100) maps onto degrees/second of manual spin.
-const ROTATION_SPEED_MAX_DEG_PER_SEC = 30; // 100 -> full revolution every 12s
+const ROTATION_SPEED_MAX_DEG_PER_SEC = 10; // 100 -> full revolution every 36s
 
 // camera.zoom config (0-100) maps onto pointOfView's altitude (globe radii).
 const ZOOM_ALTITUDE_MIN = 0.5; // 0   -> close
@@ -17,14 +21,15 @@ const ZOOM_ALTITUDE_MAX = 5; // 100 -> far
 // Live config changes ease in over this long instead of jumping.
 const TRANSITION_MS = 700;
 
-// quality presets: texture resolution, sphere tessellation (lower
-// curvatureResolution = more polygons = smoother), antialiasing (renderer
-// construction option, can't change after init) and a device-pixel-ratio cap.
+// quality presets: sphere tessellation (lower curvatureResolution = more
+// polygons = smoother), antialiasing (renderer construction option, can't
+// change after init), a device-pixel-ratio cap, and which resolution key
+// to request from the active texture preset's `images` map.
 const QUALITY_PRESETS = {
-	low: { textureUrl: "img/earth-2k.jpg", curvatureResolution: 10, antialias: false, maxPixelRatio: 1 },
-	medium: { textureUrl: "img/earth-2k.jpg", curvatureResolution: 6, antialias: true, maxPixelRatio: 1 },
-	high: { textureUrl: "img/earth-4k.jpg", curvatureResolution: 3, antialias: true, maxPixelRatio: 2 },
-	ultra: { textureUrl: "img/earth-8k.jpg", curvatureResolution: 1, antialias: true, maxPixelRatio: 3 }
+	low: { curvatureResolution: 10, antialias: false, maxPixelRatio: 1, textureRes: "2k" },
+	medium: { curvatureResolution: 6, antialias: true, maxPixelRatio: 1, textureRes: "2k" },
+	high: { curvatureResolution: 3, antialias: true, maxPixelRatio: 2, textureRes: "4k" },
+	ultra: { curvatureResolution: 1, antialias: true, maxPixelRatio: 3, textureRes: "8k" }
 };
 
 // Eases a single number from its current value to a target over a fixed
@@ -68,6 +73,8 @@ class Earth3DRenderer {
 		this.config = config;
 		this.globe = null;
 		this.globeObject3D = null;
+		this.compositor = null;
+		this.cloudsLayer = null;
 		this.destroyed = false;
 		this.animating = false;
 
@@ -83,23 +90,52 @@ class Earth3DRenderer {
 		this.lastFrameTime = null;
 
 		this.init();
+
+		// container.style.width/height may be a fixed px value or "100vw"/"100vh"
+		// (fullscreen_* positions) - either way globe.gl itself needs concrete
+		// pixel dimensions, so track the container's actual rendered size
+		// instead of trusting config.width/height, and keep it in sync as the
+		// screen/window resizes.
+		this.resizeObserver = new ResizeObserver(() => this.handleResize());
+		this.resizeObserver.observe(this.container);
+	}
+
+	// Falls back to config.width/height (then 500) only for the brief window
+	// before the container has been laid out at all - once attached, the
+	// measured size always wins.
+	getContainerSize() {
+		const rect = this.container.getBoundingClientRect();
+		return {
+			width: Math.round(rect.width) || this.config.width || 500,
+			height: Math.round(rect.height) || this.config.height || 500
+		};
+	}
+
+	handleResize() {
+		if (!this.globe) {
+			return;
+		}
+		const size = this.getContainerSize();
+		this.globe.width(size.width).height(size.height);
 	}
 
 	init() {
 		const quality = QUALITY_PRESETS[this.config.quality] || QUALITY_PRESETS.high;
+		const textures = this.resolveTextureUrls();
+		const size = this.getContainerSize();
 
 		this.globe = new Globe(this.container, {
 			rendererConfig: { antialias: quality.antialias, alpha: true }
 		})
-			.width(this.config.width)
-			.height(this.config.height)
+			.width(size.width)
+			.height(size.height)
 			.backgroundColor("rgba(0,0,0,0)")
-			.globeImageUrl(this.assetPath(quality.textureUrl))
-			.bumpImageUrl(this.assetPath("img/earth-topology.png"))
-			.globeCurvatureResolution(quality.curvatureResolution)
-			.showAtmosphere(true)
-			.atmosphereColor("lightskyblue")
-			.atmosphereAltitude(0.15);
+			.bumpImageUrl(textures.bump)
+			.globeCurvatureResolution(quality.curvatureResolution);
+		// globeImageUrl (the color map) is set by the compositor below, once
+		// it has finished layering day/night.
+
+		this.applyAtmosphere();
 
 		this.globe.renderer().setPixelRatio(Math.min(quality.maxPixelRatio, window.devicePixelRatio));
 
@@ -112,6 +148,31 @@ class Earth3DRenderer {
 		controls.enableZoom = false;
 
 		this.applyZoom();
+
+		if (!this.cloudsLayer) {
+			this.cloudsLayer = new CloudsLayer(GLOBE_RADIUS);
+		}
+
+		if (!this.compositor) {
+			this.compositor = new EarthCompositor(
+				this.config,
+				(dataUrl) => {
+					if (this.globe) {
+						this.globe.globeImageUrl(dataUrl);
+					}
+				},
+				(image) => {
+					this.cloudsLayer.setTexture(image);
+					this.cloudsLayer.setOpacity(this.config.clouds.opacity);
+					this.cloudsLayer.setVisible(this.config.clouds.enabled);
+					if (this.globeObject3D) {
+						this.cloudsLayer.attachTo(this.globeObject3D);
+					}
+				},
+				(path) => this.assetPath(path)
+			);
+		}
+		this.compositor.start(textures.image);
 
 		// The globe mesh isn't added to the scene synchronously (globe.gl
 		// debounces its internal update digest), so poll until it appears.
@@ -148,14 +209,87 @@ class Earth3DRenderer {
 	// Antialiasing is a WebGLRenderer construction option and can't be
 	// changed on an existing context, so quality changes rebuild the globe.
 	// Tween/spin state is left untouched so tilt/position/rotation continue
-	// smoothly across the rebuild.
+	// smoothly across the rebuild. This also re-picks the texture resolution
+	// key (2k/4k/8k) matching the new quality tier.
 	applyQuality() {
+		// Destroy cloudsLayer BEFORE the globe: its mesh is a child of the
+		// globe group, and globe._destructor() recursively disposes every
+		// child's geometry/material/texture (see three-render-objects'
+		// emptyObject/_deallocate) - detaching and disposing it here first
+		// avoids a double-dispose and means we don't try to reuse
+		// now-invalid GPU resources afterwards. init() builds a fresh
+		// cloudsLayer and re-fetches the clouds image via the compositor.
+		if (this.cloudsLayer) {
+			this.cloudsLayer.destroy();
+			this.cloudsLayer = null;
+		}
 		if (this.globe) {
 			this.globe._destructor();
 			this.globe = null;
 		}
 		this.globeObject3D = null;
 		this.init();
+	}
+
+	// showAtmosphere/atmosphereColor/atmosphereAltitude are regular
+	// chainable props (unlike antialiasing), so this applies live with no
+	// rebuild. opacity isn't a native globe.gl concept - approximated here
+	// as a visibility threshold until/unless real alpha blending is added.
+	applyAtmosphere() {
+		const { color, altitude, opacity } = this.config.atmosphere;
+		const visible = opacity > 0;
+		this.globe.showAtmosphere(visible);
+		if (visible) {
+			this.globe.atmosphereColor(color).atmosphereAltitude(altitude);
+		}
+	}
+
+	// bumpImageUrl is a regular chainable prop, so it applies live. The
+	// color map goes through the compositor instead of globeImageUrl
+	// directly, since the night layer blends on top of it.
+	applyTexture() {
+		const textures = this.resolveTextureUrls();
+		if (textures.bump) {
+			this.globe.bumpImageUrl(textures.bump);
+		}
+		this.compositor.setDayImage(textures.image);
+	}
+
+	// Live-update entry points for the day/night and clouds layers.
+	applyDayNight() {
+		this.compositor.scheduleDayNight();
+		this.compositor.recompute();
+	}
+
+	applyClouds() {
+		this.cloudsLayer.setOpacity(this.config.clouds.opacity);
+		this.cloudsLayer.setVisible(this.config.clouds.enabled);
+		this.compositor.applyCloudsConfig();
+	}
+
+	resolveTextureUrls() {
+		const texture = this.config.texture;
+		if (texture.preset === "custom" && texture.imageUrl) {
+			return {
+				image: texture.imageUrl,
+				bump: texture.bumpImageUrl || null
+			};
+		}
+
+		const preset = (window.EARTH3D_PRESETS.texture || []).find((entry) => entry.id === texture.preset);
+		if (!preset) {
+			return { image: null, bump: null };
+		}
+
+		const quality = QUALITY_PRESETS[this.config.quality] || QUALITY_PRESETS.high;
+		const images = preset.texture.images;
+		const image = images[quality.textureRes] || images["4k"] || Object.values(images)[0];
+		const bump = preset.texture.bumpImage;
+
+		return {
+			image: image ? this.assetPath(image) : null,
+			bump: bump ? this.assetPath(bump) : null
+		};
 	}
 
 	zoomToAltitude(zoom) {
@@ -173,6 +307,7 @@ class Earth3DRenderer {
 		const globeObject = this.globe.scene().children.find((child) => child.type === "Group");
 		if (globeObject) {
 			this.globeObject3D = globeObject;
+			this.cloudsLayer.attachTo(globeObject);
 		} else {
 			requestAnimationFrame(() => this.waitForGlobeObject());
 		}
@@ -195,6 +330,7 @@ class Earth3DRenderer {
 		this.posZ.update(now);
 		this.spinRate.update(now);
 		this.spinAngle += degToRad(this.spinRate.current) * deltaSeconds;
+		this.cloudsLayer.tick(now);
 
 		if (this.globeObject3D) {
 			// Reset to the (tweened) fixed tilt, then apply the total
@@ -204,9 +340,15 @@ class Earth3DRenderer {
 			this.globeObject3D.rotateY(this.spinAngle);
 			this.globeObject3D.position.set(this.posX.current, this.posY.current, this.posZ.current);
 
-			// Keep the camera's orbit target on the globe's current position
-			// so manual dragging (if enabled later) stays centered on it.
-			this.globe.controls().target.set(this.posX.current, this.posY.current, this.posZ.current);
+			// The camera and its OrbitControls target are deliberately left
+			// untouched here. Earlier this followed the globe's position, but
+			// OrbitControls keeps a fixed offset from its target - moving the
+			// target off-axis (X/Y) forced the camera to rotate to keep facing
+			// it, which is what looked like the globe "rotating" instead of
+			// panning. With a static camera, moving the globe object is a
+			// clean world-space translation on all three axes: X/Y pan across
+			// the screen, and Z happens to align with the camera's viewing
+			// direction, which is why it already looked like zoom.
 		}
 
 		requestAnimationFrame((t) => this.tick(t));
@@ -218,6 +360,18 @@ class Earth3DRenderer {
 
 	destroy() {
 		this.destroyed = true;
+		if (this.resizeObserver) {
+			this.resizeObserver.disconnect();
+			this.resizeObserver = null;
+		}
+		if (this.compositor) {
+			this.compositor.destroy();
+			this.compositor = null;
+		}
+		if (this.cloudsLayer) {
+			this.cloudsLayer.destroy();
+			this.cloudsLayer = null;
+		}
 		if (this.globe) {
 			this.globe._destructor();
 			this.globe = null;

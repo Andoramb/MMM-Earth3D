@@ -1,0 +1,1 @@
+1. add configurable space background: set a background image dir at public/img/backgrounds/ then let the user pick from that list: module reads the folder on startup, then populates the html with the found images; I can see that the background image should rotate with the `globe`
