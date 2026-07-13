@@ -113,7 +113,6 @@ Module.register("MMM-Earth3D", {
 			this.file("presets/atmosphere.js"),
 			this.file("presets/earthTextures.js"),
 			this.file("presets/camera.js"),
-			this.file("presets/stars.js"),
 			this.file("presets/themes.js"),
 			this.file("public/EarthCompositor.js"),
 			this.file("public/Earth3DRenderer.js")

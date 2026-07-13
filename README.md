@@ -22,9 +22,10 @@ Status: **under active development** (scaffold stage).
 ## Installation
 
 Clone this module into your MagicMirror `modules/` directory as `MMM-Earth3D`,
-run `npm install` inside it, then add it to `config.js`. The globe renders via
+then add it to `config.js` - no `npm install` needed. The globe renders via
 [globe.gl](https://github.com/vasturiano/globe.gl), whose browser build and Earth
-textures are vendored under `public/` so the module has no runtime CDN dependency.
+textures are vendored under `public/` so the module has no runtime CDN or npm
+dependency.
 
 ## Configuration
 
@@ -50,7 +51,7 @@ textures are vendored under `public/` so the module has no runtime CDN dependenc
 			rotate: { x: 0, y: 0, z: 0 },
 			position: { x: 0, y: 0, z: 0 }
 		},
-		quality: "high",
+		quality: "medium",
 		dayNight: {
 			mode: "disabled",
 			rotate: 0
@@ -58,7 +59,7 @@ textures are vendored under `public/` so the module has no runtime CDN dependenc
 		clouds: {
 			enabled: false,
 			source: "static",
-			pollInterval: "1h"
+			opacity: 0.8
 		}
 	}
 }
@@ -79,7 +80,7 @@ textures are vendored under `public/` so the module has no runtime CDN dependenc
 | `camera.zoom`            | number | `50`    | Camera distance, `0` (close) to `100` (far). Only used when `preset` is `"custom"`. Needs fine-tuning by eye once visible. |
 | `camera.rotate`          | `{x,y,z}` \| `[x,y,z]` | `{0,0,0}` | Fixed tilt of the globe's resting orientation, in degrees (`0`-`360`). Only used when `preset` is `"custom"`. Independent of `rotationSpeed` — the globe spins while sitting at this tilt. |
 | `camera.position`        | `{x,y,z}` \| `[x,y,z]` | `{0,0,0}` | Offset of the globe within the scene. Only used when `preset` is `"custom"`. Units are **3D scene units, not CSS pixels** (globe radius = 100 units) — there's no literal pixel mapping in a 3D perspective view, so this also needs fine-tuning by eye. |
-| `quality`                | string | `"high"` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` — trades render cost for realism: texture resolution (2k/2k/4k/8k), sphere smoothness, antialiasing, and display pixel ratio. Use a lower tier when zoomed out or on constrained hardware (e.g. Raspberry Pi), higher when zoomed in. |
+| `quality`                | string | `"medium"` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` — trades render cost for realism: texture resolution (2k/2k/4k/8k), sphere smoothness, antialiasing, and display pixel ratio. Use a lower tier when zoomed out or on constrained hardware (e.g. Raspberry Pi), higher when zoomed in. |
 | `dayNight.mode`          | string | `"disabled"` | `"disabled"` \| `"realtime"` (actual sun position, recomputed every 5 min) \| `"custom"` (fixed terminator angle, no astronomy). |
 | `dayNight.rotate`        | number | `0`     | Terminator angle in degrees (`0`-`360`). Only used when `mode` is `"custom"`. |
 | `clouds.enabled`         | boolean | `false` | Whether to show the cloud layer. |
@@ -97,14 +98,13 @@ MMM-Earth3D/
 ├── presets/
 │   ├── atmosphere.js     # color, altitude, opacity
 │   ├── earthTextures.js  # texture image sets (per resolution tier)
-│   ├── stars.js          # reserved - not yet rendered
 │   ├── camera.js         # zoom, rotate, position
 │   └── themes.js         # named bundles covering every config field
 ```
 
 `presets/themes.js` bundles settings under one name, so `config.theme =
-"nasa"` changes several things in one line instead of configuring each
-separately. Ships with five starter themes (`realistic`, `nasa`, `minimal`,
+"close-up"` changes several things in one line instead of configuring each
+separately. Ships with four starter themes (`realistic`, `minimal`,
 `close-up`, `mission-control`) that only combine assets that actually exist
 today — see the note in that file about adding more once new texture assets
 (night lights, Mars, etc.) are vendored.
@@ -130,9 +130,9 @@ example combining all of this.
 3. The active `theme`'s value for that field, if a theme is set (literal or a referenced preset id, per above).
 4. The module default.
 
-This is what makes `{ theme: "nasa", atmosphere: { altitude: 0.22 } }` work
-as "use the nasa theme, but tweak just this one field" instead of having to
-duplicate the whole theme as a custom preset.
+This is what makes `{ theme: "close-up", atmosphere: { altitude: 0.22 } }`
+work as "use the close-up theme, but tweak just this one field" instead of
+having to duplicate the whole theme as a custom preset.
 
 Every preset and theme is validated once at startup - an entry missing a
 required field (or malformed) is dropped with a `Log.warn`, not a crash.
@@ -142,11 +142,8 @@ matching the config property they configure (e.g. `{ id, name, atmosphere:
 it doesn't use yet (like `opacity`'s blending) without a schema change
 later.
 
-`presets/stars.js` follows the same registry pattern and can already be
-referenced by a theme, but isn't wired to an actual renderer feature yet -
-pure scaffolding for a future starfield background. There's no
-`presets/clouds.js` — the real cloud layer (below) is a `clouds.*` config
-namespace, not a preset-registry asset, since it's fetched/composited
+There's no `presets/clouds.js` — the real cloud layer (below) is a `clouds.*`
+config namespace, not a preset-registry asset, since it's fetched/composited
 rather than picked from a fixed style list; set it directly in a theme or
 config.js the same way as any other field, e.g. `clouds: { enabled: true }`.
 

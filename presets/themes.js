@@ -20,45 +20,42 @@
  * wins over whatever a theme supplies, field by field - see "Custom themes"
  * in README.md for the full resolution order.
  *
- * `stars.js` is listed here for forward-compatibility but isn't rendered
- * yet (see presets/stars.js). There's no `clouds` preset reference - the
- * clouds layer is a separate `clouds.*` config namespace (enabled/source/
- * pollInterval), not a preset-registry asset, since it's fetched/composited
- * rather than picked from a style list; set it directly, e.g.
- * `clouds: { enabled: true, source: "static" }`, same as any other field.
+ * There's no `clouds` preset reference - the clouds layer is a separate
+ * `clouds.*` config namespace (enabled/source/opacity), not a preset-registry
+ * asset, since it's fetched/composited rather than picked from a style list;
+ * set it directly, e.g. `clouds: { enabled: true, source: "static" }`, same
+ * as any other field.
  */
 window.EARTH3D_THEMES = [
 	{
 		id: "realistic",
-		name: "Realistic",
+		name: "Realistic Earth",
 		atmosphere: "realistic",
 		texture: "blue-marble",
-		camera: "default",
-		stars: "none"
-	},
-	{
-		id: "nasa",
-		name: "NASA",
-		atmosphere: "vivid",
-		texture: "blue-marble",
-		camera: "default",
-		stars: "none"
+		camera: "default"
 	},
 	{
 		id: "minimal",
 		name: "Minimal",
+		// For low-end/constrained hardware (e.g. Raspberry Pi): lowest texture
+		// resolution and sphere tessellation via quality "low" (there's only
+		// one texture *style* preset today - "low" is what actually shrinks
+		// the image asset, see presets/earthTextures.js), no spin, and every
+		// optional layer off.
+		rotationSpeed: 0,
+		quality: "low",
 		atmosphere: "none",
 		texture: "blue-marble",
 		camera: "wide",
-		stars: "none"
+		dayNight: { mode: "disabled" },
+		clouds: { enabled: false }
 	},
 	{
 		id: "close-up",
 		name: "Close-up",
 		atmosphere: "subtle",
 		texture: "blue-marble",
-		camera: "close-up",
-		stars: "none"
+		camera: "close-up"
 	},
 	{
 		id: "mission-control",
