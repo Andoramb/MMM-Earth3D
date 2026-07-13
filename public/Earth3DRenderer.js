@@ -1,20 +1,27 @@
-/* global Globe, EarthCompositor, Log */
-
-// Matches three-globe's internal GLOBE_RADIUS (world units) - needed here
-// so CloudsLayer can size its sphere relative to the actual globe surface.
-const GLOBE_RADIUS = 100;
+/* global EarthCompositor, Log */
 
 /*
  * Earth3DRenderer
- * Owns the globe.gl/WebGL scene for MMM-Earth3D. Kept separate from the
- * MagicMirror module file so future features (clouds, day/night, markers,
- * live data overlays) grow here without touching MM lifecycle code.
+ * Owns the three-globe/Three.js scene for MMM-Earth3D. Kept separate from
+ * the MagicMirror module file so future features (clouds, day/night,
+ * markers, live data overlays) grow here without touching MM lifecycle code.
+ *
+ * Three.js itself, three-globe, and OrbitControls are all real ES modules,
+ * loaded via dynamic import() (see loadThreeGlobeDeps() below) rather than
+ * MM's getScripts() - this file stays a classic script for the same reason
+ * CloudsLayer.mjs's own header already documents (MM core's script loader
+ * only recognizes a fixed extension set that varies by core version, with no
+ * default/fallback case, so an unrecognized extension can silently no-op on
+ * some versions). All three modules resolve "./vendor/three.module.min.js"
+ * by relative path (see public/vendor/three-globe.mjs and OrbitControls.js),
+ * so they - and CloudsLayer.mjs, which imports the same file - share a
+ * single Three.js instance, no globals involved.
  */
 
 // rotationSpeed config (0-100) maps onto degrees/second of manual spin.
 const ROTATION_SPEED_MAX_DEG_PER_SEC = 10; // 100 -> full revolution every 36s
 
-// camera.zoom config (0-100) maps onto pointOfView's altitude (globe radii).
+// camera.zoom config (0-100) maps onto camera distance, in globe radii.
 const ZOOM_ALTITUDE_MIN = 0.5; // 100 -> close
 const ZOOM_ALTITUDE_MAX = 5; // 0   -> far
 
@@ -37,6 +44,48 @@ const QUALITY_PRESETS = {
 	high: { curvatureResolution: 3, antialias: true, maxPixelRatio: 2, textureRes: "4k" },
 	ultra: { curvatureResolution: 1, antialias: true, maxPixelRatio: 3, textureRes: "8k" }
 };
+
+// Camera: fov matches what this module has always rendered with (both
+// three-globe and the library it used to sit on top of just use
+// THREE.PerspectiveCamera's own default of 50) - kept as an explicit named
+// constant here instead of an inherited default. near/far and the controls'
+// distance clamp below are sized to what this module actually renders (the
+// camera's distance from the globe never exceeds globeRadius * (1 +
+// ZOOM_ALTITUDE_MAX), i.e. globeRadius * 6) rather than copied from a
+// far plane sized for a 50,000-unit sky sphere this module doesn't use.
+const CAMERA_FOV = 50;
+const CAMERA_NEAR = 0.1;
+const CAMERA_FAR_MULTIPLIER = 50; // far = globeRadius * this
+
+// enableZoom is always false (see createControls()), so these bounds are
+// inert in practice - the config-driven zoom tween (see applyZoom()/tick())
+// never approaches either one. Set anyway for parity/explicitness rather
+// than left unset.
+const CONTROLS_MIN_DISTANCE = 0.1;
+const CONTROLS_MAX_DISTANCE_MULTIPLIER = 50; // maxDistance = globeRadius * this
+
+// Matches the look this module has always rendered with (previously hidden
+// inside the render library's own defaults) - now first-class, locally
+// tunable constants instead of inherited behavior.
+const AMBIENT_LIGHT_COLOR = 0xcccccc;
+const AMBIENT_LIGHT_INTENSITY = Math.PI;
+const KEY_LIGHT_COLOR = 0xffffff;
+const KEY_LIGHT_INTENSITY = 0.6 * Math.PI;
+
+// Loads three-globe + OrbitControls, both real ES modules statically
+// importing this project's own vendored Three.js by relative path (see
+// public/vendor/three-globe.mjs's generating script and OrbitControls.js's
+// header comment) - so this, CloudsLayer.mjs, and three-globe.mjs itself all
+// end up sharing the exact same Three.js instance, with no window globals
+// involved anywhere in the chain.
+async function loadThreeGlobeDeps() {
+	const [THREE, threeGlobeModule, orbitControlsModule] = await Promise.all([
+		import("./vendor/three.module.min.js"),
+		import("./vendor/three-globe.mjs"),
+		import("./vendor/OrbitControls.js")
+	]);
+	return { THREE, ThreeGlobe: threeGlobeModule.default, OrbitControls: orbitControlsModule.OrbitControls };
+}
 
 // Eases a single number from its current value to a target over a fixed
 // duration. Used for every live-tunable property so changes glide in
@@ -77,8 +126,17 @@ class Earth3DRenderer {
 	constructor(container, config) {
 		this.container = container;
 		this.config = config;
-		this.globe = null;
-		this.globeObject3D = null;
+
+		this.THREE = null;
+		this.ThreeGlobeCtor = null;
+		this.OrbitControlsCtor = null;
+
+		this.renderer = null;
+		this.scene = null;
+		this.camera = null;
+		this.controls = null;
+		this.threeGlobeObj = null;
+
 		this.compositor = null;
 		this.cloudsLayer = null;
 		this.destroyed = false;
@@ -93,6 +151,7 @@ class Earth3DRenderer {
 		this.posX = new TweenedValue(position.x);
 		this.posY = new TweenedValue(position.y);
 		this.posZ = new TweenedValue(position.z);
+		this.zoomAltitude = new TweenedValue(this.zoomToAltitude(config.camera.zoom));
 		this.spinRate = new TweenedValue(rotationSpeedToDegPerSec(config.rotationSpeed));
 		this.spinAngle = 0;
 		this.lastFrameTime = null;
@@ -100,7 +159,7 @@ class Earth3DRenderer {
 		this.init();
 
 		// container.style.width/height may be a fixed px value or "100vw"/"100vh"
-		// (fullscreen_* positions) - either way globe.gl itself needs concrete
+		// (fullscreen_* positions) - either way the renderer needs concrete
 		// pixel dimensions, so track the container's actual rendered size
 		// instead of trusting config.width/height, and keep it in sync as the
 		// screen/window resizes.
@@ -111,9 +170,8 @@ class Earth3DRenderer {
 		// a background slideshow/wallpaper module alongside this one) with no
 		// explicit z-index, so whichever loads last simply paints over the
 		// others. When that happens the globe is still fully rendering every
-		// frame for nothing - pause the actual WebGL draw loop (globe.gl's own
-		// internal animate loop, not our tick()) while it's covered, and
-		// resume as soon as it's back on top.
+		// frame for nothing - checkOcclusion() below sets this.occluded, and
+		// tick() simply skips the draw call while covered.
 		this.occluded = false;
 		this.occlusionInterval = setInterval(() => this.checkOcclusion(), OCCLUSION_CHECK_MS);
 	}
@@ -125,7 +183,7 @@ class Earth3DRenderer {
 	// elementFromPoint skips non-hit-testable elements. Good enough for the
 	// common "another fullscreen_below module paints over this one" case.
 	checkOcclusion() {
-		if (this.destroyed || !this.globe) {
+		if (this.destroyed || !this.renderer) {
 			return;
 		}
 		const rect = this.container.getBoundingClientRect();
@@ -134,15 +192,7 @@ class Earth3DRenderer {
 		}
 		const topElement = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
 		const occluded = !topElement || !this.container.contains(topElement);
-		if (occluded === this.occluded) {
-			return;
-		}
 		this.occluded = occluded;
-		if (occluded) {
-			this.globe.pauseAnimation();
-		} else {
-			this.globe.resumeAnimation();
-		}
 	}
 
 	// Falls back to config.width/height (then 500) only for the brief window
@@ -157,41 +207,46 @@ class Earth3DRenderer {
 	}
 
 	handleResize() {
-		if (!this.globe) {
+		if (!this.renderer || !this.camera) {
 			return;
 		}
 		const size = this.getContainerSize();
-		this.globe.width(size.width).height(size.height);
+		this.renderer.setSize(size.width, size.height, false);
+		this.camera.aspect = size.width / size.height;
+		this.camera.updateProjectionMatrix();
 	}
 
-	init() {
+	async init() {
 		const quality = QUALITY_PRESETS[this.config.quality] || QUALITY_PRESETS.high;
 		const textures = this.resolveTextureUrls();
 		const size = this.getContainerSize();
 
-		this.globe = new Globe(this.container, {
-			rendererConfig: { antialias: quality.antialias, alpha: true }
-		})
-			.width(size.width)
-			.height(size.height)
-			.backgroundColor("rgba(0,0,0,0)")
-			.bumpImageUrl(textures.bump)
-			.globeCurvatureResolution(quality.curvatureResolution);
-		// globeImageUrl (the color map) is set by the compositor below, once
-		// it has finished layering day/night.
+		// Only loaded once - on a quality-triggered rebuild (see
+		// applyQuality()) these are already cached, so the rest of this
+		// method runs synchronously with no import to wait on.
+		if (!this.ThreeGlobeCtor) {
+			try {
+				const deps = await loadThreeGlobeDeps();
+				this.THREE = deps.THREE;
+				this.ThreeGlobeCtor = deps.ThreeGlobe;
+				this.OrbitControlsCtor = deps.OrbitControls;
+			} catch (err) {
+				Log.error("MMM-Earth3D: failed to load three-globe/OrbitControls (" + err.message + ") - globe will not render");
+				return;
+			}
+			if (this.destroyed) {
+				return;
+			}
+		}
+
+		this.createRenderer(quality, size);
+		this.createScene();
+		this.createGlobe(textures, quality);
+		this.createCamera(size);
+		this.createLights();
+		this.createControls();
 
 		this.applyAtmosphere();
-
-		this.globe.renderer().setPixelRatio(Math.min(quality.maxPixelRatio, window.devicePixelRatio));
-
-		const controls = this.globe.controls();
-		// Spin is applied manually each frame (see tick()) around the globe's
-		// own local axis, so it correctly follows any fixed tilt. OrbitControls'
-		// built-in autoRotate always orbits the camera around the world's
-		// vertical axis instead, which looks wrong once the globe is tilted.
-		controls.autoRotate = false;
-		controls.enableZoom = false;
-
 		this.applyZoom();
 
 		this.ensureCloudsLayer();
@@ -200,8 +255,8 @@ class Earth3DRenderer {
 			this.compositor = new EarthCompositor(
 				this.config,
 				(dataUrl) => {
-					if (this.globe) {
-						this.globe.globeImageUrl(dataUrl);
+					if (this.threeGlobeObj) {
+						this.threeGlobeObj.globeImageUrl(dataUrl);
 					}
 				},
 				(image) => {
@@ -221,25 +276,73 @@ class Earth3DRenderer {
 		}
 		this.compositor.start(textures.image);
 
-		// A freshly constructed Globe always starts animating - applyQuality()
-		// rebuilds it, so re-apply whatever occlusion state was already known.
-		if (this.occluded) {
-			this.globe.pauseAnimation();
-		}
+		this.startRenderLoop();
+	}
 
-		// The globe mesh isn't added to the scene synchronously (globe.gl
-		// debounces its internal update digest), so poll until it appears.
-		this.waitForGlobeObject();
+	createRenderer(quality, size) {
+		this.renderer = new this.THREE.WebGLRenderer({ antialias: quality.antialias, alpha: true });
+		this.renderer.setClearColor(0x000000, 0);
+		this.renderer.setPixelRatio(Math.min(quality.maxPixelRatio, window.devicePixelRatio));
+		this.renderer.setSize(size.width, size.height, false);
+		this.container.appendChild(this.renderer.domElement);
+	}
 
-		if (!this.animating) {
-			this.animating = true;
-			requestAnimationFrame((now) => this.tick(now));
+	createScene() {
+		this.scene = new this.THREE.Scene();
+	}
+
+	// bumpImageUrl/globeCurvatureResolution are three-globe's own config
+	// methods; the composited day/night color map is set later by the
+	// compositor's onReady callback (see init() above), once it has finished
+	// layering day/night.
+	createGlobe(textures, quality) {
+		this.threeGlobeObj = new this.ThreeGlobeCtor()
+			.bumpImageUrl(textures.bump)
+			.globeCurvatureResolution(quality.curvatureResolution);
+		this.scene.add(this.threeGlobeObj);
+	}
+
+	// Created after createGlobe() so the far plane can be sized against the
+	// globe's real radius (see CAMERA_FAR_MULTIPLIER above) instead of a
+	// guessed constant. Initial position is an arbitrary unit vector along
+	// +Z - applyZoom(), called right after createControls() below, scales it
+	// to the actual configured distance before the first frame ever renders.
+	createCamera(size) {
+		const globeRadius = this.threeGlobeObj.getGlobeRadius();
+		this.camera = new this.THREE.PerspectiveCamera(CAMERA_FOV, size.width / size.height, CAMERA_NEAR, globeRadius * CAMERA_FAR_MULTIPLIER);
+		this.camera.position.set(0, 0, 1);
+	}
+
+	createLights() {
+		this.scene.add(
+			new this.THREE.AmbientLight(AMBIENT_LIGHT_COLOR, AMBIENT_LIGHT_INTENSITY),
+			new this.THREE.DirectionalLight(KEY_LIGHT_COLOR, KEY_LIGHT_INTENSITY)
+		);
+	}
+
+	createControls() {
+		this.controls = new this.OrbitControlsCtor(this.camera, this.renderer.domElement);
+		// Spin is applied manually each frame (see tick()) around the globe's
+		// own local axis, so it correctly follows any fixed tilt. OrbitControls'
+		// built-in autoRotate always orbits the camera around the world's
+		// vertical axis instead, which looks wrong once the globe is tilted.
+		this.controls.autoRotate = false;
+		this.controls.enableZoom = false;
+		this.controls.minDistance = CONTROLS_MIN_DISTANCE;
+		this.controls.maxDistance = this.threeGlobeObj.getGlobeRadius() * CONTROLS_MAX_DISTANCE_MULTIPLIER;
+	}
+
+	startRenderLoop() {
+		if (this.animating) {
+			return;
 		}
+		this.animating = true;
+		requestAnimationFrame((now) => this.tick(now));
 	}
 
 	// Live-update entry points: config is shared by reference with the
 	// MMM-Earth3D module instance, so callers mutate this.config first and
-	// then call the matching apply*() to ease the live globe.gl scene toward it.
+	// then call the matching apply*() to ease the live scene toward it.
 
 	debugLog() {
 		if (!this.config || !this.config.debug) {
@@ -255,7 +358,7 @@ class Earth3DRenderer {
 
 	applyZoom() {
 		this.debugLog("applyZoom", this.config.camera.zoom);
-		this.globe.pointOfView({ altitude: this.zoomToAltitude(this.config.camera.zoom) }, TRANSITION_MS);
+		this.zoomAltitude.setTarget(this.zoomToAltitude(this.config.camera.zoom), TRANSITION_MS);
 	}
 
 	applyGlobeTransform() {
@@ -270,42 +373,40 @@ class Earth3DRenderer {
 	}
 
 	// Antialiasing is a WebGLRenderer construction option and can't be
-	// changed on an existing context, so quality changes rebuild the globe.
+	// changed on an existing context, so quality changes rebuild the scene.
 	// Tween/spin state is left untouched so tilt/position/rotation continue
 	// smoothly across the rebuild. This also re-picks the texture resolution
 	// key (2k/4k/8k) matching the new quality tier.
 	applyQuality() {
 		this.debugLog("applyQuality", this.config.quality);
-		// Destroy cloudsLayer BEFORE the globe: its mesh is a child of the
-		// globe group, and globe._destructor() recursively disposes every
-		// child's geometry/material/texture (see three-render-objects'
-		// emptyObject/_deallocate) - detaching and disposing it here first
-		// avoids a double-dispose and means we don't try to reuse
-		// now-invalid GPU resources afterwards. init() builds a fresh
-		// cloudsLayer and re-fetches the clouds image via the compositor.
+		// Destroy cloudsLayer BEFORE the globe: its meshes sit alongside the
+		// globe object and disposeObject3D()/teardownScene() below walks the
+		// scene - detaching and disposing clouds here first avoids a
+		// double-dispose and means we don't try to reuse now-invalid GPU
+		// resources afterwards. init() builds a fresh cloudsLayer and
+		// re-fetches the clouds image via the compositor.
 		if (this.cloudsLayer) {
 			this.cloudsLayer.destroy();
 			this.cloudsLayer = null;
 		}
-		if (this.globe) {
-			this.globe._destructor();
-			this.globe = null;
-		}
-		this.globeObject3D = null;
+		this.teardownScene();
 		this.init();
 	}
 
 	// showAtmosphere/atmosphereColor/atmosphereAltitude are regular
-	// chainable props (unlike antialiasing), so this applies live with no
-	// rebuild. opacity isn't a native globe.gl concept - approximated here
-	// as a visibility threshold until/unless real alpha blending is added.
+	// chainable three-globe props, so this applies live with no rebuild.
+	// opacity isn't a native three-globe concept - approximated here as a
+	// visibility threshold until/unless real alpha blending is added.
 	applyAtmosphere() {
 		const { color, altitude, opacity } = this.config.atmosphere;
 		const visible = opacity > 0;
 		this.debugLog("applyAtmosphere", { color, altitude, opacity, visible });
-		this.globe.showAtmosphere(visible);
+		if (!this.threeGlobeObj) {
+			return;
+		}
+		this.threeGlobeObj.showAtmosphere(visible);
 		if (visible) {
-			this.globe.atmosphereColor(color).atmosphereAltitude(altitude);
+			this.threeGlobeObj.atmosphereColor(color).atmosphereAltitude(altitude);
 		}
 	}
 
@@ -315,17 +416,21 @@ class Earth3DRenderer {
 	applyTexture() {
 		const textures = this.resolveTextureUrls();
 		this.debugLog("applyTexture", textures);
-		if (textures.bump) {
-			this.globe.bumpImageUrl(textures.bump);
+		if (this.threeGlobeObj && textures.bump) {
+			this.threeGlobeObj.bumpImageUrl(textures.bump);
 		}
-		this.compositor.setDayImage(textures.image);
+		if (this.compositor) {
+			this.compositor.setDayImage(textures.image);
+		}
 	}
 
 	// Live-update entry points for the day/night and clouds layers.
 	applyDayNight() {
 		this.debugLog("applyDayNight", this.config.dayNight);
-		this.compositor.scheduleDayNight();
-		this.compositor.recompute();
+		if (this.compositor) {
+			this.compositor.scheduleDayNight();
+			this.compositor.recompute();
+		}
 	}
 
 	applyClouds() {
@@ -334,7 +439,9 @@ class Earth3DRenderer {
 			this.cloudsLayer.setOpacity(this.config.clouds.opacity);
 			this.cloudsLayer.setVisible(this.config.clouds.enabled);
 		}
-		this.compositor.applyCloudsConfig();
+		if (this.compositor) {
+			this.compositor.applyCloudsConfig();
+		}
 	}
 
 	// Called once MMM-Earth3D.js hears back from node_helper with the actual
@@ -404,13 +511,13 @@ class Earth3DRenderer {
 				if (this.destroyed || this.cloudsLayer) {
 					return;
 				}
-				this.cloudsLayer = new module.CloudsLayer(GLOBE_RADIUS);
+				this.cloudsLayer = new module.CloudsLayer(this.threeGlobeObj.getGlobeRadius());
 				if (this.pendingCloudsImage) {
 					this.applyCloudsImage(this.pendingCloudsImage);
 				}
 				this.cloudsLayer.setNightMask(this.pendingCloudsNightMask);
-				if (this.globeObject3D) {
-					this.cloudsLayer.attachTo(this.globeObject3D);
+				if (this.threeGlobeObj) {
+					this.cloudsLayer.attachTo(this.threeGlobeObj);
 				}
 			})
 			.catch((err) => {
@@ -423,26 +530,8 @@ class Earth3DRenderer {
 		this.cloudsLayer.setTexture(image);
 		this.cloudsLayer.setOpacity(this.config.clouds.opacity);
 		this.cloudsLayer.setVisible(this.config.clouds.enabled);
-		if (this.globeObject3D) {
-			this.cloudsLayer.attachTo(this.globeObject3D);
-		}
-	}
-
-	waitForGlobeObject() {
-		if (this.destroyed) {
-			return;
-		}
-		// The globe mesh is the sole Group-type child of the scene (skysphere
-		// is a Mesh, lights have their own types) - not officially documented
-		// by globe.gl, but reliable across the installed version.
-		const globeObject = this.globe.scene().children.find((child) => child.type === "Group");
-		if (globeObject) {
-			this.globeObject3D = globeObject;
-			if (this.cloudsLayer) {
-				this.cloudsLayer.attachTo(globeObject);
-			}
-		} else {
-			requestAnimationFrame(() => this.waitForGlobeObject());
+		if (this.threeGlobeObj) {
+			this.cloudsLayer.attachTo(this.threeGlobeObj);
 		}
 	}
 
@@ -462,18 +551,19 @@ class Earth3DRenderer {
 		this.posY.update(now);
 		this.posZ.update(now);
 		this.spinRate.update(now);
+		this.zoomAltitude.update(now);
 		this.spinAngle += degToRad(this.spinRate.current) * deltaSeconds;
 		if (this.cloudsLayer) {
 			this.cloudsLayer.tick(now);
 		}
 
-		if (this.globeObject3D) {
+		if (this.threeGlobeObj) {
 			// Reset to the (tweened) fixed tilt, then apply the total
 			// accumulated spin as a local-axis rotation on top of it, so the
 			// spin always turns around the globe's own (tilted) polar axis.
-			this.globeObject3D.rotation.set(degToRad(this.tiltX.current), degToRad(this.tiltY.current), degToRad(this.tiltZ.current));
-			this.globeObject3D.rotateY(this.spinAngle);
-			this.globeObject3D.position.set(this.posX.current, this.posY.current, this.posZ.current);
+			this.threeGlobeObj.rotation.set(degToRad(this.tiltX.current), degToRad(this.tiltY.current), degToRad(this.tiltZ.current));
+			this.threeGlobeObj.rotateY(this.spinAngle);
+			this.threeGlobeObj.position.set(this.posX.current, this.posY.current, this.posZ.current);
 
 			// The camera and its OrbitControls target are deliberately left
 			// untouched here. Earlier this followed the globe's position, but
@@ -486,11 +576,82 @@ class Earth3DRenderer {
 			// direction, which is why it already looked like zoom.
 		}
 
+		if (this.camera && this.controls && this.threeGlobeObj) {
+			// Preserves the camera's current bearing, only changes its
+			// distance from the target - this is the one place a future
+			// lat/lng orbit, alternate projection, or cinematic camera
+			// transition would extend; only altitude is driven from config
+			// today.
+			const offset = this.camera.position.clone().sub(this.controls.target);
+			offset.setLength(this.threeGlobeObj.getGlobeRadius() * (1 + this.zoomAltitude.current));
+			this.camera.position.copy(this.controls.target).add(offset);
+			this.controls.update();
+		}
+
+		if (this.renderer && this.scene && this.camera && !this.occluded) {
+			this.renderer.render(this.scene, this.camera);
+		}
+
 		requestAnimationFrame((t) => this.tick(t));
 	}
 
 	assetPath(relativePath) {
 		return "modules/MMM-Earth3D/public/" + relativePath;
+	}
+
+	// Walks an Object3D's whole subtree disposing every geometry/material
+	// (and any texture referenced by a material's own properties - map,
+	// bumpMap, etc, whatever the material actually has) it finds. Same
+	// disposal pattern CloudsLayer.mjs already uses for its own meshes,
+	// applied here to the (larger, three-globe-owned) globe/atmosphere
+	// hierarchy instead of hand-listing every possible map name.
+	disposeObject3D(root) {
+		root.traverse((child) => {
+			if (child.geometry) {
+				child.geometry.dispose();
+			}
+			const materials = Array.isArray(child.material) ? child.material : (child.material ? [child.material] : []);
+			materials.forEach((material) => {
+				Object.keys(material).forEach((key) => {
+					const value = material[key];
+					if (value && value.isTexture) {
+						value.dispose();
+					}
+				});
+				material.dispose();
+			});
+		});
+	}
+
+	// Full teardown of everything created in createRenderer()/createScene()/
+	// .../createControls() - used both by destroy() and by applyQuality()'s
+	// rebuild. Three.js/three-globe have no single all-in-one destructor, so
+	// this spells out explicitly what needs to happen: dispose the globe's
+	// geometry/materials/textures, dispose the controls (drops their DOM
+	// event listeners) and renderer (frees the GL context), detach the
+	// canvas from the DOM, and clear every reference so nothing left running
+	// (e.g. a stray already-scheduled tick()) can touch a disposed object.
+	teardownScene() {
+		if (this.threeGlobeObj) {
+			this.disposeObject3D(this.threeGlobeObj);
+			if (this.scene) {
+				this.scene.remove(this.threeGlobeObj);
+			}
+			this.threeGlobeObj = null;
+		}
+		if (this.controls) {
+			this.controls.dispose();
+			this.controls = null;
+		}
+		if (this.renderer) {
+			this.renderer.dispose();
+			if (this.renderer.domElement && this.renderer.domElement.parentNode) {
+				this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+			}
+			this.renderer = null;
+		}
+		this.scene = null;
+		this.camera = null;
 	}
 
 	destroy() {
@@ -511,11 +672,7 @@ class Earth3DRenderer {
 			this.cloudsLayer.destroy();
 			this.cloudsLayer = null;
 		}
-		if (this.globe) {
-			this.globe._destructor();
-			this.globe = null;
-			this.globeObject3D = null;
-		}
+		this.teardownScene();
 	}
 }
 
