@@ -47,18 +47,57 @@ const CLOUDS_VARIATION_PHASE_Y = Math.PI / 3;
 
 const SPHERE_SEGMENTS = 75;
 
-// The night-shade shell (see setNightMask() below) sits fractionally
-// further out than the clouds sphere - just enough to avoid z-fighting,
-// invisible at this scale (globe radius = 100 units) - so it renders in
-// front of (over) the clouds instead of coinciding with their surface.
-const SHADE_ALTITUDE = CLOUDS_ALTITUDE + 0.0008;
+/*
+ * Night-side darkening (see setNightMask() below) is applied as a shader
+ * effect on this SAME mesh, rather than a second sphere - an earlier version
+ * of this file used a separate, non-rotating "shade" sphere sitting just
+ * above the clouds, but two near-coincident transparent spheres z-fight
+ * (the depth buffer can't reliably tell them apart at that tiny gap), which
+ * showed up as visible flicker/tearing between the two layers.
+ *
+ * The real difficulty this shader solves: the mask EarthCompositor builds is
+ * correct in *geographic* terms (a small equirectangular canvas, the same
+ * projection the clouds texture itself uses) - but it needs to land on the
+ * geographic point each fragment is CURRENTLY covering, not the point its
+ * texture coordinate corresponds to at rest. Since this mesh's own rotation
+ * (tick() below) is layered independently on top of the globe's shared
+ * spin/tilt purely for the parallax look, a fragment's UV drifts relative to
+ * geography over time - sampling the mask directly by UV would reproduce the
+ * exact drift bug this file used to have. Instead, each fragment's raw
+ * (rotation-invariant) object-space normal is rotated by this mesh's current
+ * accumulated rotation (a plain 3x3 uniform, updated once per frame in
+ * tick() - cheap, done once per frame rather than per pixel) before being
+ * converted back to (lat, lng) and used to sample the mask - which is
+ * exactly "where is this fragment over the Earth right now", regardless of
+ * how long the clouds have been drifting.
+ */
+const NIGHT_MASK_VERTEX_INJECT = {
+	common: "#include <common>\nvarying vec3 vCloudObjectNormal;",
+	beginnormal_vertex: "#include <beginnormal_vertex>\nvCloudObjectNormal = objectNormal;"
+};
+const NIGHT_MASK_FRAGMENT_INJECT = {
+	common: `#include <common>
+		uniform mat3 cloudRotation;
+		uniform sampler2D nightMask;
+		uniform float nightMaskEnabled;
+		varying vec3 vCloudObjectNormal;`,
+	map_fragment: `#include <map_fragment>
+		if ( nightMaskEnabled > 0.5 ) {
+			vec3 correctedNormal = normalize( cloudRotation * vCloudObjectNormal );
+			float lng = atan( -correctedNormal.z, correctedNormal.x );
+			float lat = asin( clamp( correctedNormal.y, -1.0, 1.0 ) );
+			vec2 maskUv = vec2( lng / ( 2.0 * 3.14159265358979 ) + 0.5, 0.5 - lat / 3.14159265358979 );
+			float nightAmount = texture2D( nightMask, maskUv ).a;
+			diffuseColor.rgb *= ( 1.0 - nightAmount );
+		}`
+};
 
 export class CloudsLayer {
 	constructor(globeRadius) {
 		this.globeRadius = globeRadius;
 		this.mesh = null;
-		this.shadeMesh = null;
-		this.nightMaskActive = false;
+		this.shader = null;
+		this.nightMaskTexture = null;
 		this.lastFrameTime = null;
 	}
 
@@ -70,6 +109,7 @@ export class CloudsLayer {
 			const texture = new THREE.Texture(image);
 			texture.needsUpdate = true;
 			const material = new THREE.MeshPhongMaterial({ map: texture, transparent: true, opacity: 1 });
+			material.onBeforeCompile = (shader) => this.onMaterialCompile(shader);
 			this.mesh = new THREE.Mesh(geometry, material);
 			return;
 		}
@@ -78,44 +118,51 @@ export class CloudsLayer {
 		this.mesh.material.map.needsUpdate = true;
 	}
 
-	// image is a small black/transparent alpha mask from EarthCompositor
-	// (transparent on the day side, translucent black on the night side),
-	// or null to hide the shading entirely (dayNight disabled).
-	//
-	// Deliberately its own mesh rather than baked into the clouds texture:
-	// this.mesh spins independently (tick() below) for the parallax effect,
-	// so anything painted into *its* texture would drift out of alignment
-	// with the true terminator as it rotates. This mesh is attached directly
-	// alongside it (see attachTo()) and its own rotation is never touched -
-	// it only inherits the globe's overall orientation, the same as the
-	// terminator baked into the globe's own (non-rotating) texture, so it
-	// stays correctly aligned no matter how long the clouds have been
-	// spinning or which dayNight mode (realtime/custom) is active.
-	setNightMask(image) {
-		this.nightMaskActive = Boolean(image);
+	// Injects the night-mask darkening logic (see the comment above) into
+	// the material's regular Phong shader - keeps normal Phong lighting for
+	// the plain "clouds, no day/night" look, only modulating brightness on
+	// top of it. Runs once (or again if the material ever needs recompiling,
+	// e.g. after toggling features that change its #defines) - the uniforms
+	// object is stashed on `this.shader` so setNightMask()/tick() can update
+	// their values every frame without needing a recompile.
+	onMaterialCompile(shader) {
+		shader.uniforms.cloudRotation = { value: new THREE.Matrix3() };
+		shader.uniforms.nightMask = { value: this.nightMaskTexture || new THREE.DataTexture(new Uint8Array(4), 1, 1) };
+		shader.uniforms.nightMaskEnabled = { value: this.nightMaskTexture ? 1 : 0 };
+		shader.vertexShader = shader.vertexShader
+			.replace("#include <common>", NIGHT_MASK_VERTEX_INJECT.common)
+			.replace("#include <beginnormal_vertex>", NIGHT_MASK_VERTEX_INJECT.beginnormal_vertex);
+		shader.fragmentShader = shader.fragmentShader
+			.replace("#include <common>", NIGHT_MASK_FRAGMENT_INJECT.common)
+			.replace("#include <map_fragment>", NIGHT_MASK_FRAGMENT_INJECT.map_fragment);
+		this.shader = shader;
+	}
 
+	// image is a small black/transparent alpha mask from EarthCompositor
+	// (transparent on the day side, translucent black on the night side, in
+	// the same equirectangular projection the clouds texture itself uses),
+	// or null to turn the effect off entirely (dayNight disabled).
+	setNightMask(image) {
+		if (this.nightMaskTexture) {
+			this.nightMaskTexture.dispose();
+			this.nightMaskTexture = null;
+		}
 		if (!image) {
-			if (this.shadeMesh) {
-				this.shadeMesh.visible = false;
+			if (this.shader) {
+				this.shader.uniforms.nightMaskEnabled.value = 0;
 			}
 			return;
 		}
-
-		if (!this.shadeMesh) {
-			const geometry = new THREE.SphereGeometry(this.globeRadius * (1 + SHADE_ALTITUDE), SPHERE_SEGMENTS, SPHERE_SEGMENTS);
-			const texture = new THREE.Texture(image);
-			texture.needsUpdate = true;
-			const material = new THREE.MeshBasicMaterial({ color: 0x000000, map: texture, transparent: true, depthWrite: false });
-			this.shadeMesh = new THREE.Mesh(geometry, material);
-			if (this.mesh && this.mesh.parent) {
-				this.mesh.parent.add(this.shadeMesh);
-			}
-		} else {
-			this.shadeMesh.material.map.dispose();
-			this.shadeMesh.material.map = new THREE.Texture(image);
-			this.shadeMesh.material.map.needsUpdate = true;
+		this.nightMaskTexture = new THREE.CanvasTexture(image);
+		// The mask's (lng) coordinate is derived per-fragment via atan2 (see
+		// onMaterialCompile()'s shader chunk), which wraps at +-180 deg - without
+		// this the seam there would show as a hard line instead of wrapping
+		// smoothly.
+		this.nightMaskTexture.wrapS = THREE.RepeatWrapping;
+		if (this.shader) {
+			this.shader.uniforms.nightMask.value = this.nightMaskTexture;
+			this.shader.uniforms.nightMaskEnabled.value = 1;
 		}
-		this.shadeMesh.visible = this.mesh ? this.mesh.visible : true;
 	}
 
 	setOpacity(opacity) {
@@ -128,20 +175,11 @@ export class CloudsLayer {
 		if (this.mesh) {
 			this.mesh.visible = visible;
 		}
-		if (this.shadeMesh) {
-			this.shadeMesh.visible = visible && this.nightMaskActive;
-		}
 	}
 
-	// this.shadeMesh is added as a SIBLING of this.mesh (both direct
-	// children of parentObject3D), not a child of this.mesh - critical so
-	// it doesn't inherit this.mesh's own independent spin from tick() below.
 	attachTo(parentObject3D) {
 		if (this.mesh && this.mesh.parent !== parentObject3D) {
 			parentObject3D.add(this.mesh);
-		}
-		if (this.shadeMesh && this.shadeMesh.parent !== parentObject3D) {
-			parentObject3D.add(this.shadeMesh);
 		}
 	}
 
@@ -158,13 +196,24 @@ export class CloudsLayer {
 		const speedY = CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC
 			* (1 + CLOUDS_SPEED_VARIATION * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_Y_SEC + CLOUDS_VARIATION_PHASE_Y));
 
-		// Only this.mesh gets the independent parallax spin - this.shadeMesh
-		// is deliberately left untouched, see setNightMask() above.
 		this.mesh.rotation.x += (speedX * Math.PI / 180) * deltaSeconds;
 		this.mesh.rotation.y += (speedY * Math.PI / 180) * deltaSeconds;
+
+		// Keeps the night mask locked to true geography (see the comment
+		// above onMaterialCompile()) regardless of the independent parallax
+		// spin just applied above - cheap (once per frame, not per pixel).
+		if (this.shader) {
+			this.shader.uniforms.cloudRotation.value.setFromMatrix4(
+				new THREE.Matrix4().makeRotationFromEuler(this.mesh.rotation)
+			);
+		}
 	}
 
 	destroy() {
+		if (this.nightMaskTexture) {
+			this.nightMaskTexture.dispose();
+			this.nightMaskTexture = null;
+		}
 		if (this.mesh) {
 			this.mesh.geometry.dispose();
 			if (this.mesh.material.map) {
@@ -176,17 +225,7 @@ export class CloudsLayer {
 			}
 			this.mesh = null;
 		}
-		if (this.shadeMesh) {
-			this.shadeMesh.geometry.dispose();
-			if (this.shadeMesh.material.map) {
-				this.shadeMesh.material.map.dispose();
-			}
-			this.shadeMesh.material.dispose();
-			if (this.shadeMesh.parent) {
-				this.shadeMesh.parent.remove(this.shadeMesh);
-			}
-			this.shadeMesh = null;
-		}
+		this.shader = null;
 	}
 }
 window.CloudsLayer = CloudsLayer;
