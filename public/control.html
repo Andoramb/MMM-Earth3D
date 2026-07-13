@@ -191,9 +191,11 @@
 				<button type="button" id="themeDeleteBtn">Delete theme</button>
 			</div>
 			<p class="intro" style="margin:8px 0 0;">
-				These edit <code>presets/themes.js</code> on disk directly - the
-				running display needs a reload/restart to pick up the change,
-				same as any other preset file edit.
+				Duplicate/Save/Delete only ever edit <code>presets/themes-user.js</code>
+				on disk (gitignored, never the built-in themes in
+				<code>presets/themes.js</code>) - the running display needs a
+				reload/restart to pick up the change, same as any other preset
+				file edit.
 			</p>
 		</fieldset>
 	</section>
@@ -359,6 +361,7 @@
 <script src="../presets/earthTextures.js"></script>
 <script src="../presets/camera.js"></script>
 <script src="../presets/themes.js"></script>
+<script src="../presets/themes-user.js"></script>
 <script>
 (function () {
 	"use strict";
@@ -733,11 +736,17 @@
 	// theme switch), just ask the module what it actually resolved to.
 
 	const themeEl = document.getElementById("theme");
-	const themes = window.EARTH3D_THEMES || [];
+	// Built-in (presets/themes.js) and user-created (presets/themes-user.js,
+	// gitignored - see node_helper.js) themes are just one combined list from
+	// here on; defaultThemeIds is only kept to label them in the dropdown and
+	// to give a clear client-side message before Save/Delete even reach the
+	// server (which enforces the same rule either way).
+	const defaultThemeIds = new Set((window.EARTH3D_THEMES || []).map((theme) => theme.id));
+	const themes = (window.EARTH3D_THEMES || []).concat(window.EARTH3D_USER_THEMES || []);
 	for (const theme of themes) {
 		const option = document.createElement("option");
 		option.value = theme.id;
-		option.textContent = theme.name;
+		option.textContent = theme.name + (defaultThemeIds.has(theme.id) ? " (built-in)" : "");
 		themeEl.append(option);
 	}
 
@@ -746,12 +755,13 @@
 	});
 
 	// --- Theme management (Duplicate / Save / Delete) -----------------------
-	// Reads/rewrites presets/themes.js on the server via POST
+	// Reads presets/themes.js (built-in, read-only from here) and
+	// reads/rewrites presets/themes-user.js on the server via POST
 	// /MMM-Earth3D/theme (node_helper.js) - only affects the FILE, so the
 	// currently-running display needs a reload/restart to see it (same as
 	// hand-editing any other presets/*.js file). Reloading this control page
 	// after a successful edit is enough to see it here immediately, since
-	// presets/themes.js is just a plain <script> tag.
+	// both are just plain <script> tags.
 
 	function postThemeAction (body) {
 		return fetch("/MMM-Earth3D/theme", {
@@ -792,6 +802,10 @@
 			setStatus("Pick a theme first - \"Custom\" isn't a stored theme to save into", true);
 			return;
 		}
+		if (defaultThemeIds.has(themeId)) {
+			setStatus("Can't save over a built-in theme - Duplicate it first, then save into the copy", true);
+			return;
+		}
 		const theme = themes.find((entry) => entry.id === themeId);
 		if (!window.confirm('Save the current settings into "' + (theme ? theme.name : themeId) + '"? This overwrites whatever it currently has for the fields you\'ve changed.')) {
 			return;
@@ -803,6 +817,10 @@
 		const themeId = themeEl.value;
 		if (themeId === "custom") {
 			setStatus("\"Custom\" isn't a stored theme - nothing to delete", true);
+			return;
+		}
+		if (defaultThemeIds.has(themeId)) {
+			setStatus("Can't delete a built-in theme", true);
 			return;
 		}
 		const theme = themes.find((entry) => entry.id === themeId);

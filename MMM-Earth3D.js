@@ -99,7 +99,10 @@ Module.register("MMM-Earth3D", {
 		window.EARTH3D_PRESETS.atmosphere = this.validatePresets(window.EARTH3D_PRESETS.atmosphere, "atmosphere", ["color", "altitude"]);
 		window.EARTH3D_PRESETS.texture = this.validatePresets(window.EARTH3D_PRESETS.texture, "texture", ["images"]);
 		window.EARTH3D_PRESETS.camera = this.validatePresets(window.EARTH3D_PRESETS.camera, "camera", ["zoom", "rotate", "position"]);
-		window.EARTH3D_THEMES = this.validateThemes(window.EARTH3D_THEMES || []);
+		// User-created themes (presets/themes-user.js, gitignored - see
+		// node_helper.js) are merged in after the shipped defaults; from here
+		// on the module treats them as one combined list.
+		window.EARTH3D_THEMES = this.validateThemes((window.EARTH3D_THEMES || []).concat(window.EARTH3D_USER_THEMES || []));
 
 		this.captureUserOverrides();
 		this.resolveConfig();
@@ -125,6 +128,7 @@ Module.register("MMM-Earth3D", {
 			this.file("presets/earthTextures.js"),
 			this.file("presets/camera.js"),
 			this.file("presets/themes.js"),
+			this.file("presets/themes-user.js"),
 			this.file("public/EarthCompositor.js"),
 			this.file("public/Earth3DRenderer.js")
 		];

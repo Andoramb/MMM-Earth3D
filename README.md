@@ -103,7 +103,8 @@ MMM-Earth3D/
 │   ├── atmosphere.js     # color, altitude, opacity
 │   ├── earthTextures.js  # texture image sets (per resolution tier)
 │   ├── camera.js         # zoom, rotate, position
-│   └── themes.js         # named bundles covering every config field
+│   ├── themes.js         # named bundles covering every config field
+│   └── themes-user.js    # themes made via control.html - gitignored, see below
 ```
 
 `presets/themes.js` bundles settings under one name, so `config.theme =
@@ -111,7 +112,11 @@ MMM-Earth3D/
 separately. Ships with four starter themes (`realistic`, `minimal`,
 `close-up`, `mission-control`) that only combine assets that actually exist
 today — see the note in that file about adding more once new texture assets
-(night lights, Mars, etc.) are vendored.
+(night lights, Mars, etc.) are vendored. `presets/themes-user.js` holds
+anything *you* create via control.html's theme buttons (see "Live tuning"
+below) - kept separate and gitignored so your customizations never conflict
+with a `git pull` of this file, and the module treats both files as one
+combined theme list.
 
 **A theme can set literally any config field** — `rotationSpeed`, `quality`,
 `atmosphere`, `texture`, `camera`, `dayNight`, `clouds` — not just reference
@@ -249,8 +254,14 @@ lets the page reflect a theme/config set in `config.js` at startup, not just
 values changed from the page itself.
 
 The Home page's **Duplicate current theme** / **Save current settings to
-theme** / **Delete theme** buttons edit `presets/themes.js` on disk, via
-`POST /MMM-Earth3D/theme` (`{"action": "duplicate" | "save" | "delete", ...}`).
+theme** / **Delete theme** buttons only ever edit `presets/themes-user.js`
+on disk (gitignored - created automatically on first use, holds nothing but
+what you make with these buttons), via `POST /MMM-Earth3D/theme`
+(`{"action": "duplicate" | "save" | "delete", ...}`). The shipped
+`presets/themes.js` is read-only from here: **Save**/**Delete** on a built-in
+theme is rejected (duplicate it first, then save into the copy), so a
+`git pull` of upstream default-theme changes never conflicts with your own
+customizations and they never show up as a dirty diff on `presets/themes.js`.
 "Save" merges only the fields you've actually changed (`userOverrides` above)
 into the selected theme, so untouched fields keep whatever the theme already
 had rather than being pinned to today's values. These edit the *file*, not the
@@ -258,9 +269,12 @@ live scene - like any other `presets/*.js` edit, the already-running display
 needs a reload/restart to pick it up (this control page itself reloads
 automatically after a successful edit, since it just re-reads the file via a
 plain `<script>` tag). Also worth knowing: each write regenerates the whole
-file from its parsed contents, so it normalizes formatting and **will strip
-any hand-written comments inside individual theme entries** (the file's
-top-of-file doc comment is preserved) - not just from the theme you touched.
+`presets/themes-user.js` file from its parsed contents, so it normalizes
+formatting and **will strip any hand-written comments inside individual
+theme entries** (the file's top-of-file doc comment is preserved) - not just
+from the theme you touched. `presets/themes.js` is never written to, so its
+formatting/comments are untouched no matter how many times you use these
+buttons.
 
 If you already have [MMM-Remote-Control](https://github.com/Jopyth/MMM-Remote-Control)
 installed, its generic notification API works too (`POST

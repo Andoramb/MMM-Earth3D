@@ -8,6 +8,21 @@ const Log = require("logger");
 const THEMES_FILE = path.join(__dirname, "presets", "themes.js");
 const THEMES_ASSIGNMENT = "window.EARTH3D_THEMES = ";
 
+// Themes created/edited via control.html's Duplicate/Save/Delete buttons live
+// in a separate, gitignored file - never in the shipped presets/themes.js -
+// so your own customizations never show up as a dirty diff on that file, and
+// a `git pull` of upstream default-theme changes never conflicts with them.
+const USER_THEMES_FILE = path.join(__dirname, "presets", "themes-user.js");
+const USER_THEMES_ASSIGNMENT = "window.EARTH3D_USER_THEMES = ";
+const USER_THEMES_HEADER = "/* global window */\n\n"
+	+ "/*\n"
+	+ " * User-created MMM-Earth3D themes - anything made via control.html's\n"
+	+ " * Duplicate/Save/Delete theme buttons lives here, never in\n"
+	+ " * presets/themes.js (the shipped defaults). Gitignored on purpose - see\n"
+	+ " * that file for the built-in themes this extends. Same format, and\n"
+	+ " * nothing stops you hand-editing this one too.\n"
+	+ " */\n";
+
 // How long to wait for the module's front-end to answer an
 // EARTH3D_REQUEST_CONFIG round-trip before giving up on a GET
 // /MMM-Earth3D/config request - generous, since it's just socket.io
@@ -31,11 +46,13 @@ const CONFIG_REQUEST_TIMEOUT_MS = 3000;
  *   what a theme switch (or anything else) actually resolved to, since that
  *   resolution logic lives client-side in the browser tab running the actual
  *   module, not here.
- * - POST /MMM-Earth3D/theme reads/rewrites presets/themes.js directly on
- *   disk - control.html's Duplicate/Save/Delete theme buttons. Editing that
- *   file doesn't affect an already-running module instance (same as hand-
- *   editing any other presets/*.js file - needs a reload/restart to pick up),
- *   only what a *future* load of the page sees.
+ * - POST /MMM-Earth3D/theme reads presets/themes.js (built-in themes,
+ *   read-only from here) and reads/rewrites presets/themes-user.js
+ *   (everything control.html's Duplicate/Save/Delete theme buttons create) -
+ *   see USER_THEMES_FILE below for why they're split. Editing that file
+ *   doesn't affect an already-running module instance (same as hand-editing
+ *   any other presets/*.js file - needs a reload/restart to pick up), only
+ *   what a *future* load of the page sees.
  *
  * express.json() is applied only to routes that need it (not app-wide) since
  * MM core doesn't register a body parser on the shared Express app itself,
@@ -50,6 +67,16 @@ const CONFIG_REQUEST_TIMEOUT_MS = 3000;
  */
 module.exports = NodeHelper.create({
 	start: function () {
+		// Best-effort - if this fails (e.g. a permissions issue on this
+		// particular host/environment), the theme HTTP route below still has
+		// its own try/catch and will report a clear error when actually used,
+		// rather than an unhandled throw here taking down every OTHER route
+		// this node_helper registers (set-config, config, server time...).
+		try {
+			ensureUserThemesFile();
+		} catch (err) {
+			Log.error("[MMM-Earth3D node_helper] could not create presets/themes-user.js (" + err.message + ") - theme save/duplicate will fail until this is fixed");
+		}
 		this.pendingConfigRequests = [];
 
 		this.expressApp.post("/MMM-Earth3D/set-config", express.json(), (req, res) => {
@@ -100,25 +127,34 @@ module.exports = NodeHelper.create({
 		}
 	},
 
-	// --- Theme file management (presets/themes.js) --------------------------
+	// --- Theme file management (presets/themes.js + presets/themes-user.js) -
 
 	handleThemeAction: function (body) {
-		const { header, themes } = readThemes();
+		// Retried here (not just at startup) in case start()'s attempt failed
+		// but whatever caused that has since been fixed.
+		ensureUserThemesFile();
+		const defaultThemes = readThemesFile(THEMES_FILE, THEMES_ASSIGNMENT).themes;
+		const { header, themes: userThemes } = readThemesFile(USER_THEMES_FILE, USER_THEMES_ASSIGNMENT);
+		const allThemes = defaultThemes.concat(userThemes);
 
 		if (body.action === "duplicate") {
-			return this.duplicateTheme(header, themes, body);
+			return this.duplicateTheme(header, allThemes, userThemes, body);
 		}
 		if (body.action === "save") {
-			return this.saveThemeOverrides(header, themes, body);
+			return this.saveThemeOverrides(header, defaultThemes, userThemes, body);
 		}
 		if (body.action === "delete") {
-			return this.deleteTheme(header, themes, body);
+			return this.deleteTheme(header, defaultThemes, userThemes, body);
 		}
 		throw new Error('Unknown theme action "' + body.action + '"');
 	},
 
-	duplicateTheme: function (header, themes, body) {
-		const source = themes.find((entry) => entry.id === body.sourceId);
+	// allThemes (default + user) is only used to find the source and to keep
+	// the new id unique across both - the clone itself always goes into
+	// userThemes/themes-user.js, regardless of which list the source came
+	// from.
+	duplicateTheme: function (header, allThemes, userThemes, body) {
+		const source = allThemes.find((entry) => entry.id === body.sourceId);
 		if (!source) {
 			throw new Error('No theme with id "' + body.sourceId + '"');
 		}
@@ -126,27 +162,28 @@ module.exports = NodeHelper.create({
 		if (!name) {
 			throw new Error("New theme name can't be empty");
 		}
-		const id = uniqueId(themes, slugify(name));
+		const id = uniqueId(allThemes, slugify(name));
 		const clone = JSON.parse(JSON.stringify(source));
 		clone.id = id;
 		clone.name = name;
-		themes.push(clone);
-		writeThemes(header, themes);
+		userThemes.push(clone);
+		writeThemesFile(USER_THEMES_FILE, header, USER_THEMES_ASSIGNMENT, userThemes);
 		return { id, message: 'Duplicated "' + source.name + '" as "' + name + '"' };
 	},
 
-	// Merges only the fields the caller says are actively overridden
-	// (body.overrides, the module's sparse userOverrides - not a full
-	// resolved-config snapshot) into the theme's existing entry, so
-	// untouched fields keep whatever the theme already had instead of being
-	// pinned to today's resolved value.
-	saveThemeOverrides: function (header, themes, body) {
-		const index = themes.findIndex((entry) => entry.id === body.themeId);
+	// Only ever writes to userThemes/themes-user.js - saving over a built-in
+	// theme isn't supported (duplicate it first), since presets/themes.js is
+	// meant to stay exactly what the module ships with.
+	saveThemeOverrides: function (header, defaultThemes, userThemes, body) {
+		const index = userThemes.findIndex((entry) => entry.id === body.themeId);
 		if (index === -1) {
+			if (defaultThemes.some((entry) => entry.id === body.themeId)) {
+				throw new Error("Can't save over a built-in theme - duplicate it first, then save into the copy");
+			}
 			throw new Error('No theme with id "' + body.themeId + '"');
 		}
 		const overrides = body.overrides || {};
-		const theme = Object.assign({}, themes[index]);
+		const theme = Object.assign({}, userThemes[index]);
 
 		if (overrides.rotationSpeed !== undefined) {
 			theme.rotationSpeed = overrides.rotationSpeed;
@@ -170,44 +207,55 @@ module.exports = NodeHelper.create({
 			theme.clouds = Object.assign({}, theme.clouds, overrides.clouds);
 		}
 
-		themes[index] = theme;
-		writeThemes(header, themes);
+		userThemes[index] = theme;
+		writeThemesFile(USER_THEMES_FILE, header, USER_THEMES_ASSIGNMENT, userThemes);
 		return { message: 'Saved current settings into "' + theme.name + '"' };
 	},
 
-	deleteTheme: function (header, themes, body) {
-		const index = themes.findIndex((entry) => entry.id === body.themeId);
+	deleteTheme: function (header, defaultThemes, userThemes, body) {
+		const index = userThemes.findIndex((entry) => entry.id === body.themeId);
 		if (index === -1) {
+			if (defaultThemes.some((entry) => entry.id === body.themeId)) {
+				throw new Error("Can't delete a built-in theme");
+			}
 			throw new Error('No theme with id "' + body.themeId + '"');
 		}
-		const [removed] = themes.splice(index, 1);
-		writeThemes(header, themes);
+		const [removed] = userThemes.splice(index, 1);
+		writeThemesFile(USER_THEMES_FILE, header, USER_THEMES_ASSIGNMENT, userThemes);
 		return { message: 'Deleted "' + removed.name + '"' };
 	}
 });
 
-// Splits off everything before the `window.EARTH3D_THEMES = ` assignment
-// (the file's hand-written doc-comment header) so writeThemes() can put it
-// back afterward - a machine-rewritten themes.js still reads like it was
-// written by a person. Evaluated via `vm` rather than JSON.parse since the
-// file is real JS (unquoted keys, [x,y,z] array shorthand, comments) - this
-// is our own trusted local file, not user input, so running it is fine.
-function readThemes() {
-	const source = fs.readFileSync(THEMES_FILE, "utf8");
-	const index = source.indexOf(THEMES_ASSIGNMENT);
+function ensureUserThemesFile() {
+	if (fs.existsSync(USER_THEMES_FILE)) {
+		return;
+	}
+	fs.writeFileSync(USER_THEMES_FILE, USER_THEMES_HEADER + USER_THEMES_ASSIGNMENT + "[];\n");
+}
+
+// Splits off everything before the assignment (the file's hand-written
+// doc-comment header) so writeThemesFile() can put it back afterward - a
+// machine-rewritten file still reads like it was written by a person.
+// Evaluated via `vm` rather than JSON.parse since these are real JS files
+// (unquoted keys, [x,y,z] array shorthand, comments) - both are our own
+// trusted local files, not user input, so running them is fine.
+function readThemesFile(file, assignment) {
+	const source = fs.readFileSync(file, "utf8");
+	const index = source.indexOf(assignment);
 	if (index === -1) {
-		throw new Error('presets/themes.js doesn\'t contain the expected "' + THEMES_ASSIGNMENT + '" assignment');
+		throw new Error(path.basename(file) + ' doesn\'t contain the expected "' + assignment + '" assignment');
 	}
 	const header = source.slice(0, index);
 	const sandbox = { window: {} };
 	vm.createContext(sandbox);
-	vm.runInContext(source, sandbox, { filename: THEMES_FILE });
-	const themes = Array.isArray(sandbox.window.EARTH3D_THEMES) ? sandbox.window.EARTH3D_THEMES : [];
+	vm.runInContext(source, sandbox, { filename: file });
+	const globalName = assignment.slice("window.".length, -3); // "window.EARTH3D_THEMES = " -> "EARTH3D_THEMES"
+	const themes = Array.isArray(sandbox.window[globalName]) ? sandbox.window[globalName] : [];
 	return { header, themes };
 }
 
-function writeThemes(header, themes) {
-	fs.writeFileSync(THEMES_FILE, header + THEMES_ASSIGNMENT + JSON.stringify(themes, null, "\t") + ";\n");
+function writeThemesFile(file, header, assignment, themes) {
+	fs.writeFileSync(file, header + assignment + JSON.stringify(themes, null, "\t") + ";\n");
 }
 
 function slugify(name) {
