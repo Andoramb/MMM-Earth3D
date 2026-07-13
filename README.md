@@ -77,7 +77,7 @@ dependency.
 | `atmosphere.opacity`     | number | `1`     | `0` hides the atmosphere entirely, `>0` shows it. Not a native globe.gl concept - approximated as an on/off threshold rather than true alpha blending. Only used when `preset` is `"custom"`. |
 | `texture.preset`         | string \| `"custom"` | `"blue-marble"` | An id from `presets/earthTextures.js`, or `"custom"` with `texture.imageUrl` / `texture.bumpImageUrl` for your own fixed texture. |
 | `camera.preset`          | string \| `"custom"` | `"custom"` | An id from `presets/camera.js` (overrides zoom/rotate/position below), or `"custom"` to use those fields directly. |
-| `camera.zoom`            | number | `50`    | Camera distance, `0` (close) to `100` (far). Only used when `preset` is `"custom"`. Needs fine-tuning by eye once visible. |
+| `camera.zoom`            | number | `50`    | Camera distance, `0` (far) to `100` (close). Only used when `preset` is `"custom"`. Needs fine-tuning by eye once visible. |
 | `camera.rotate`          | `{x,y,z}` \| `[x,y,z]` | `{0,0,0}` | Fixed tilt of the globe's resting orientation, in degrees (`0`-`360`). Only used when `preset` is `"custom"`. Independent of `rotationSpeed` — the globe spins while sitting at this tilt. |
 | `camera.position`        | `{x,y,z}` \| `[x,y,z]` | `{0,0,0}` | Offset of the globe within the scene. Only used when `preset` is `"custom"`. Units are **3D scene units, not CSS pixels** (globe radius = 100 units) — there's no literal pixel mapping in a 3D perspective view, so this also needs fine-tuning by eye. |
 | `quality`                | string | `"medium"` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` — trades render cost for realism: texture resolution (2k/2k/4k/8k), sphere smoothness, antialiasing, and display pixel ratio. Use a lower tier when zoomed out or on constrained hardware (e.g. Raspberry Pi), higher when zoomed in. |
@@ -187,8 +187,16 @@ separately-vendored Three.js build (`public/vendor/three.module.min.js` +
   const CLOUDS_ALTITUDE = 0.006; // how far above the globe surface, as a fraction of its radius
   const CLOUDS_ROTATION_SPEED_X_DEG_PER_SEC = 0.3; // relative to the globe's own rotation
   const CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC = 0.5;
+  const CLOUDS_SPEED_VARIATION = 0.4; // 0-1, how much the two speeds above slowly wander (0 = constant speed)
+  const CLOUDS_VARIATION_PERIOD_X_SEC = 95; // seconds per wander cycle, per axis
+  const CLOUDS_VARIATION_PERIOD_Y_SEC = 140;
   ```
   These aren't live-updatable config (a size/rotation change needs a page reload, not a `EARTH3D_SET_CONFIG` notification) since they're rarely-tweaked constants, not something you'd want a slider for.
+- When `dayNight.mode` isn't `"disabled"`, clouds are also darkened on the night side (multiplied against the same terminator computed for the globe texture, so both stay in sync) - **the strength is a constant in `public/EarthCompositor.js`**:
+  ```js
+  const CLOUDS_NIGHT_DARKEN = 0.65; // 0 = no darkening, 1 = fully black at full night
+  ```
+  The atmosphere glow is *not* shaded this way - globe.gl's atmosphere is a single-color shader shell around the whole globe, not a texture, so it has no per-longitude "night side" to darken without forking that shader.
 
 ## Live tuning (no restart or reload)
 

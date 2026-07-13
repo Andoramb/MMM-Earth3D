@@ -33,7 +33,7 @@ Module.register("MMM-Earth3D", {
 
 		camera: {
 			preset: "custom", // string id from presets/camera.js, or "custom" for the fields below
-			zoom: 50, // 0-100, 0 = close, 100 = far
+			zoom: 50, // 0-100, 0 = far (zoomed out), 100 = close (zoomed in)
 			rotate: { x: 0, y: 0, z: 0 }, // degrees, fixed tilt of the globe's resting orientation - also accepts [x, y, z]
 			position: { x: 0, y: 0, z: 0 } // scene-unit offset (globe radius = 100 units, not CSS pixels) - also accepts [x, y, z]
 		},

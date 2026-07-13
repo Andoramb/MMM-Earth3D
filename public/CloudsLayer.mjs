@@ -34,6 +34,17 @@ const CLOUDS_ALTITUDE = 0.006;
 const CLOUDS_ROTATION_SPEED_X_DEG_PER_SEC = 0.3;
 const CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC = 0.5;
 
+// Slowly wanders each axis' speed up/down over time instead of a perfectly
+// constant drift, so the clouds feel a bit more alive without being
+// distracting. 0 = no variation (back to constant speed); 0.4 = speed
+// wanders between 60% and 140% of the base value above. Periods are in
+// seconds and deliberately different (and phase-offset) per axis so the two
+// don't fall in/out of sync with each other in an obviously repeating way.
+const CLOUDS_SPEED_VARIATION = 0.4;
+const CLOUDS_VARIATION_PERIOD_X_SEC = 95;
+const CLOUDS_VARIATION_PERIOD_Y_SEC = 140;
+const CLOUDS_VARIATION_PHASE_Y = Math.PI / 3;
+
 const SPHERE_SEGMENTS = 75;
 
 export class CloudsLayer {
@@ -83,8 +94,15 @@ export class CloudsLayer {
 		}
 		const deltaSeconds = this.lastFrameTime !== null ? (now - this.lastFrameTime) / 1000 : 0;
 		this.lastFrameTime = now;
-		this.mesh.rotation.x += (CLOUDS_ROTATION_SPEED_X_DEG_PER_SEC * Math.PI / 180) * deltaSeconds;
-		this.mesh.rotation.y += (CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC * Math.PI / 180) * deltaSeconds;
+
+		const nowSec = now / 1000;
+		const speedX = CLOUDS_ROTATION_SPEED_X_DEG_PER_SEC
+			* (1 + CLOUDS_SPEED_VARIATION * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_X_SEC));
+		const speedY = CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC
+			* (1 + CLOUDS_SPEED_VARIATION * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_Y_SEC + CLOUDS_VARIATION_PHASE_Y));
+
+		this.mesh.rotation.x += (speedX * Math.PI / 180) * deltaSeconds;
+		this.mesh.rotation.y += (speedY * Math.PI / 180) * deltaSeconds;
 	}
 
 	destroy() {

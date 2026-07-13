@@ -15,8 +15,8 @@ const GLOBE_RADIUS = 100;
 const ROTATION_SPEED_MAX_DEG_PER_SEC = 10; // 100 -> full revolution every 36s
 
 // camera.zoom config (0-100) maps onto pointOfView's altitude (globe radii).
-const ZOOM_ALTITUDE_MIN = 0.5; // 0   -> close
-const ZOOM_ALTITUDE_MAX = 5; // 100 -> far
+const ZOOM_ALTITUDE_MIN = 0.5; // 100 -> close
+const ZOOM_ALTITUDE_MAX = 5; // 0   -> far
 
 // Live config changes ease in over this long instead of jumping.
 const TRANSITION_MS = 700;
@@ -356,7 +356,7 @@ class Earth3DRenderer {
 
 	zoomToAltitude(zoom) {
 		const t = clamp(zoom, 0, 100) / 100;
-		return ZOOM_ALTITUDE_MIN + t * (ZOOM_ALTITUDE_MAX - ZOOM_ALTITUDE_MIN);
+		return ZOOM_ALTITUDE_MAX - t * (ZOOM_ALTITUDE_MAX - ZOOM_ALTITUDE_MIN);
 	}
 
 	// CloudsLayer.mjs is an ES module (it needs a real Three.js import, unlike

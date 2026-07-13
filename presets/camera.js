@@ -25,7 +25,7 @@ window.EARTH3D_PRESETS.camera = [
 		id: "close-up",
 		name: "Close-up",
 		camera: {
-			zoom: 15,
+			zoom: 85,
 			rotate: { x: 0, y: 0, z: 0 },
 			position: { x: 0, y: 0, z: 0 }
 		}
@@ -34,7 +34,7 @@ window.EARTH3D_PRESETS.camera = [
 		id: "wide",
 		name: "Wide / far",
 		camera: {
-			zoom: 85,
+			zoom: 15,
 			rotate: { x: 0, y: 0, z: 0 },
 			position: { x: 0, y: 0, z: 0 }
 		}
