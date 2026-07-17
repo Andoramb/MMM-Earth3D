@@ -294,6 +294,25 @@ Module.register("MMM-Earth3D", {
 		this.resolveCity();
 	},
 
+	// city isn't preset/theme-driven like the asset configs above - just a
+	// name to look up in window.EARTH3D_CITIES (presets/cities.js) via
+	// findCity() below. Resolves to lat/lng (or null if no match) so
+	// Earth3DRenderer never needs to know about the lookup table itself.
+	resolveCity: function () {
+		const override = this.userOverrides.city;
+		const name = (override && override.name !== undefined) ? override.name : this.defaults.city.name;
+		const match = name ? findCity(name) : null;
+		if (name && !match) {
+			Log.warn(this.name + ': no city found matching "' + name + '"');
+		}
+		this.config.city = {
+			name,
+			lat: match ? match.lat : null,
+			lng: match ? match.lng : null,
+			matchedName: match ? match.name : null
+		};
+	},
+
 	// Plain top-level values (rotationSpeed, quality): override > theme > default.
 	resolveScalar: function (key, theme) {
 		if (this.userOverrides[key] !== undefined) {
