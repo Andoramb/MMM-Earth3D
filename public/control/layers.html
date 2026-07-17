@@ -81,6 +81,47 @@
 			<span class="value" id="cloudsOpacity-val">80</span>
 		</label>
 	</fieldset>
+
+	<h2>Flight</h2>
+	<fieldset data-panel="flights">
+		<legend>Live tracking</legend>
+		<div class="row">
+			<input type="text" id="flightNumber" placeholder="Flight number, e.g. UA123">
+		</div>
+		<label>
+			<span class="name">Track</span>
+			<input type="checkbox" id="flightTrack">
+		</label>
+		<label>
+			<span class="name">Poll every</span>
+			<input type="range" id="flightPollInterval" min="10" max="300" value="20">
+			<span class="value" id="flightPollInterval-val">20</span>
+		</label>
+		<p class="intro" id="flightStatusHint" style="margin:6px 0 0;">
+			Enter a flight number above to start tracking.
+		</p>
+	</fieldset>
+	<fieldset data-panel="flights">
+		<legend>OpenSky API access</legend>
+		<label>
+			<span class="name">Client ID</span>
+			<input type="text" id="flightClientId" placeholder="optional">
+		</label>
+		<label>
+			<span class="name">Secret</span>
+			<input type="text" id="flightClientSecret" placeholder="optional">
+		</label>
+		<div class="theme-actions">
+			<button type="button" id="flightSaveCredentialsBtn">Save credentials</button>
+			<button type="button" id="flightClearCredentialsBtn">Clear saved credentials</button>
+		</div>
+		<p class="intro" id="flightCredentialsHint" style="margin:6px 0 0;">
+			Anonymous OpenSky access (no signup) allows 400 requests/day -
+			plenty for occasional tracking. A free OpenSky account's OAuth2
+			client credentials raise that to 4000/day, with automatic
+			fallback to anonymous if they ever fail.
+		</p>
+	</fieldset>
 </main>
 
 <!-- Absolute paths - see home.html's comment above these tags for why. -->

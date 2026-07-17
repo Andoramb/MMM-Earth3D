@@ -18,8 +18,17 @@
  * single Three.js instance, no globals involved.
  */
 
-// rotationSpeed config (0-100) maps onto degrees/second of manual spin.
-const ROTATION_SPEED_MAX_DEG_PER_SEC = 10; // 100 -> full revolution every 36s
+// rotationSpeed config (0-100, though only 0-25 is actually reachable - see
+// ROTATION_SPEED_SATURATION) maps onto degrees/second of manual spin.
+const ROTATION_SPEED_MAX_DEG_PER_SEC = 10; // 100 -> full revolution every 36s, if it were reachable
+
+// The full 0-100 config range felt too fast well before reaching 100 - most
+// of that range was unusable in practice. Rather than rescale the whole
+// curve (which would also make the already-comfortable low end steeper/
+// faster for the same value), the input is simply clamped here: 25 and
+// above all produce the same speed 25 always did (2.5 deg/sec, one
+// revolution every 144s), and 0-25 feels exactly as before.
+const ROTATION_SPEED_SATURATION = 25;
 
 // camera.zoom config (0-100) maps onto camera distance, in globe radii.
 const ZOOM_ALTITUDE_MIN = 0.5; // 100 -> close
@@ -161,6 +170,8 @@ class Earth3DRenderer {
 
 		this.compositor = null;
 		this.cloudsLayer = null;
+		this.flightLayer = null;
+		this.flightLayerImporting = false;
 		this.backgroundMesh = null;
 		this.backgroundLoadId = 0;
 		this.destroyed = false;
@@ -178,6 +189,9 @@ class Earth3DRenderer {
 		this.zoomAltitude = new TweenedValue(this.zoomToAltitude(config.camera.zoom));
 		this.spinRate = new TweenedValue(rotationSpeedToDegPerSec(config.rotationSpeed));
 		this.spinAngle = 0;
+		// 0 = normal spin/tilt (flights.track off), 1 = fully blended toward
+		// facing the tracked flight (see applyFlights()/tick()).
+		this.flightTrackBlend = new TweenedValue(0);
 		this.lastFrameTime = null;
 
 		this.init();
@@ -275,6 +289,7 @@ class Earth3DRenderer {
 		this.applyBackground();
 
 		this.ensureCloudsLayer();
+		this.ensureFlightLayer();
 
 		if (!this.compositor) {
 			this.compositor = new EarthCompositor(
@@ -417,6 +432,10 @@ class Earth3DRenderer {
 			this.cloudsLayer.destroy();
 			this.cloudsLayer = null;
 		}
+		if (this.flightLayer) {
+			this.flightLayer.destroy();
+			this.flightLayer = null;
+		}
 		this.teardownScene();
 		this.init();
 	}
@@ -538,6 +557,31 @@ class Earth3DRenderer {
 		}
 	}
 
+	// flights.enabled/pollInterval drive the marker/interpolation timing;
+	// flights.track drives how far tick()'s rotation blends toward facing
+	// the tracked flight - both ease in via the same TweenedValue/
+	// TRANSITION_MS convention as every other live-tunable field.
+	applyFlights() {
+		const flights = this.config.flights;
+		this.debugLog("applyFlights", flights, "flightLayer ready:", Boolean(this.flightLayer));
+		if (this.flightLayer) {
+			this.flightLayer.setVisible(flights.enabled);
+			this.flightLayer.setPollIntervalMs(flights.pollInterval * 1000);
+		}
+		this.flightTrackBlend.setTarget(flights.enabled && flights.track ? 1 : 0, TRANSITION_MS);
+	}
+
+	// Live telemetry pushed from node_helper's OpenSky poller
+	// (EARTH3D_FLIGHT_POSITION) - not a config field, so this is called
+	// directly from MMM-Earth3D.js's socketNotificationReceived rather than
+	// going through an apply*()-from-config path.
+	updateFlightPosition(data) {
+		this.debugLog("updateFlightPosition", data, "flightLayer ready:", Boolean(this.flightLayer));
+		if (this.flightLayer) {
+			this.flightLayer.pushSample(data);
+		}
+	}
+
 	// Called once MMM-Earth3D.js hears back from node_helper with the actual
 	// MagicMirror host's clock (see its EARTH3D_SERVER_TIME handler) - kept
 	// here too (not just forwarded straight to the compositor) since the
@@ -620,6 +664,32 @@ class Earth3DRenderer {
 			});
 	}
 
+	// FlightLayer.mjs is loaded the same way and for the same reason as
+	// CloudsLayer.mjs above (a dynamic import(), bypassing MM's getScripts()
+	// extension-sniffing).
+	ensureFlightLayer() {
+		if (this.flightLayer || this.flightLayerImporting || this.destroyed) {
+			return;
+		}
+		this.flightLayerImporting = true;
+		import("./FlightLayer.mjs" + this.cacheBust)
+			.then((module) => {
+				this.flightLayerImporting = false;
+				if (this.destroyed || this.flightLayer) {
+					return;
+				}
+				this.flightLayer = new module.FlightLayer(this.threeGlobeObj.getGlobeRadius(), Boolean(this.config.debug));
+				if (this.threeGlobeObj) {
+					this.flightLayer.attachTo(this.threeGlobeObj);
+				}
+				this.applyFlights();
+			})
+			.catch((err) => {
+				this.flightLayerImporting = false;
+				Log.error("MMM-Earth3D: failed to load FlightLayer.mjs (" + err.message + ") - flight tracking will stay disabled");
+			});
+	}
+
 	applyCloudsImage(image) {
 		this.cloudsLayer.setTexture(image);
 		this.cloudsLayer.setOpacity(this.config.clouds.opacity);
@@ -646,36 +716,77 @@ class Earth3DRenderer {
 		this.posZ.update(now);
 		this.spinRate.update(now);
 		this.zoomAltitude.update(now);
+		this.flightTrackBlend.update(now);
 		this.spinAngle += degToRad(this.spinRate.current) * deltaSeconds;
 		if (this.cloudsLayer) {
 			this.cloudsLayer.tick(now);
 		}
+		if (this.flightLayer) {
+			this.flightLayer.tick(now);
+		}
 
 		if (this.threeGlobeObj) {
-			// Reset to the (tweened) fixed tilt, then apply the total
-			// accumulated spin as a local-axis rotation on top of it, so the
-			// spin always turns around the globe's own (tilted) polar axis.
-			this.threeGlobeObj.rotation.set(degToRad(this.tiltX.current), degToRad(this.tiltY.current), degToRad(this.tiltZ.current));
-			this.threeGlobeObj.rotateY(this.spinAngle);
+			// Base orientation: the (tweened) fixed tilt, with the total
+			// accumulated spin applied as a local-axis rotation on top of it,
+			// so the spin always turns around the globe's own (tilted) polar
+			// axis - the same composition this always used (rotation.set()
+			// + rotateY()), just built as a quaternion so it can be slerped
+			// against a "face the tracked flight" quaternion below without an
+			// Euler-angle discontinuity. Object3D.rotateY() itself
+			// post-multiplies the current quaternion by a local Y rotation,
+			// which is exactly qBase.multiply(qSpin) below.
+			const qBase = new this.THREE.Quaternion().setFromEuler(
+				new this.THREE.Euler(degToRad(this.tiltX.current), degToRad(this.tiltY.current), degToRad(this.tiltZ.current))
+			);
+			const qSpin = new this.THREE.Quaternion().setFromAxisAngle(new this.THREE.Vector3(0, 1, 0), this.spinAngle);
+			let qFinal = qBase.multiply(qSpin);
+
+			// flights.track (see applyFlights()) slerps the globe's rotation
+			// toward one that puts the tracked flight's current position
+			// facing the camera - the globe (and, since it's a child of
+			// threeGlobeObj, the background too) rotates to keep the flight
+			// centered, rather than moving the camera itself. A literal
+			// camera-follow was tried before and reverted for looking wrong
+			// (OrbitControls keeps a fixed offset from its target, which
+			// fought a moving target - see git history) - rotating the globe
+			// instead sidesteps that entirely, and reuses getCoords(), the
+			// same helper FlightLayer.mjs uses to place the marker itself, so
+			// the "centered" point and the marker are always the same spot.
+			// spinAngle keeps accumulating the whole time even at full blend,
+			// so un-tracking resumes from wherever normal spin already is
+			// instead of a frozen angle.
+			const flightPosition = (this.flightLayer && this.flightTrackBlend.current > 0.001)
+				? this.flightLayer.getCurrentPosition()
+				: null;
+			if (flightPosition && this.camera && this.controls) {
+				const coords = this.threeGlobeObj.getCoords(flightPosition.lat, flightPosition.lng, 0);
+				const pointLocal = new this.THREE.Vector3(coords.x, coords.y, coords.z).normalize();
+				const cameraDirWorld = this.camera.position.clone().sub(this.controls.target).normalize();
+				const qTrack = new this.THREE.Quaternion().setFromUnitVectors(pointLocal, cameraDirWorld);
+				qFinal = qFinal.slerp(qTrack, this.flightTrackBlend.current);
+			}
+
+			this.threeGlobeObj.quaternion.copy(qFinal);
 			this.threeGlobeObj.position.set(this.posX.current, this.posY.current, this.posZ.current);
 
-			// The camera and its OrbitControls target are deliberately left
-			// untouched here. Earlier this followed the globe's position, but
-			// OrbitControls keeps a fixed offset from its target - moving the
-			// target off-axis (X/Y) forced the camera to rotate to keep facing
-			// it, which is what looked like the globe "rotating" instead of
-			// panning. With a static camera, moving the globe object is a
-			// clean world-space translation on all three axes: X/Y pan across
-			// the screen, and Z happens to align with the camera's viewing
-			// direction, which is why it already looked like zoom.
+			// The camera and its OrbitControls target are otherwise
+			// deliberately left untouched here (position, not rotation) -
+			// see the comment above for why panning the globe object itself,
+			// not the camera, is what X/Y pan and flights.track both rely on.
+		}
+
+		// Manually orbiting while a flight is being tracked (or easing
+		// into/out of it) would fight the auto-recentering happening above
+		// every frame, so drag is locked for as long as any blend is active.
+		if (this.controls) {
+			this.controls.enableRotate = this.flightTrackBlend.current <= 0.001;
 		}
 
 		if (this.camera && this.controls && this.threeGlobeObj) {
 			// Preserves the camera's current bearing, only changes its
-			// distance from the target - this is the one place a future
-			// lat/lng orbit, alternate projection, or cinematic camera
-			// transition would extend; only altitude is driven from config
-			// today.
+			// distance from the target - lat/lng-driven framing (flights.track
+			// above) is handled by rotating the globe instead, not by moving
+			// the camera; this block only ever drives altitude from config.
 			const offset = this.camera.position.clone().sub(this.controls.target);
 			offset.setLength(this.threeGlobeObj.getGlobeRadius() * (1 + this.zoomAltitude.current));
 			this.camera.position.copy(this.controls.target).add(offset);
@@ -770,12 +881,16 @@ class Earth3DRenderer {
 			this.cloudsLayer.destroy();
 			this.cloudsLayer = null;
 		}
+		if (this.flightLayer) {
+			this.flightLayer.destroy();
+			this.flightLayer = null;
+		}
 		this.teardownScene();
 	}
 }
 
 function rotationSpeedToDegPerSec(speed) {
-	return (clamp(speed, 0, 100) / 100) * ROTATION_SPEED_MAX_DEG_PER_SEC;
+	return (clamp(speed, 0, ROTATION_SPEED_SATURATION) / 100) * ROTATION_SPEED_MAX_DEG_PER_SEC;
 }
 
 function degToRad(deg) {

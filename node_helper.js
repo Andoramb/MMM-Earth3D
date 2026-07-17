@@ -4,6 +4,7 @@ const vm = require("vm");
 const NodeHelper = require("node_helper");
 const express = require("express");
 const Log = require("logger");
+const { createFlightTracker } = require("./lib/flightTracker");
 
 const THEMES_FILE = path.join(__dirname, "presets", "themes.js");
 const THEMES_ASSIGNMENT = "window.EARTH3D_THEMES = ";
@@ -24,6 +25,12 @@ const USER_THEMES_HEADER = "/* global window */\n\n"
 	+ " */\n";
 
 const CONTROL_PANEL_DIR = path.join(__dirname, "public", "control");
+
+// OpenSky OAuth2 client credentials for the Flight layer - plain JSON (not
+// the vm-evaluated presets/*.js convention above, see lib/flightTracker.js's
+// loadCredentials()), gitignored, never served to any client. Entirely
+// optional - the Flight layer works anonymously with no file present.
+const FLIGHT_CREDENTIALS_FILE = path.join(__dirname, "presets", "flight-credentials.json");
 
 // How long to wait for the module's front-end to answer an
 // EARTH3D_REQUEST_CONFIG round-trip before giving up on a GET
@@ -62,6 +69,19 @@ const CONFIG_REQUEST_TIMEOUT_MS = 3000;
  *   doesn't affect an already-running module instance (same as hand-editing
  *   any other presets/*.js file - needs a reload/restart to pick up), only
  *   what a *future* load of the page sees.
+ * - The Flight layer (lib/flightTracker.js, lib/openSkyClient.js): this
+ *   node_helper owns the actual OpenSky polling loop (the module's browser
+ *   tab only renders whatever position it's sent), learning what to poll for
+ *   via EARTH3D_FLIGHTS_STATE (pushed by MMM-Earth3D.js, not pulled from
+ *   here - see that file's sendFlightsState()) and reporting results back
+ *   via EARTH3D_FLIGHT_POSITION. GET /MMM-Earth3D/flights/status answers the
+ *   control panel's status line directly from node_helper's own state (no
+ *   socket round-trip needed, unlike GET /MMM-Earth3D/config, since flight
+ *   status is entirely node_helper-owned, not resolved client-side).
+ *   GET/POST /MMM-Earth3D/flights/credentials manage an optional OpenSky
+ *   OAuth2 client id/secret for the higher-rate-limit registered tier -
+ *   stored in FLIGHT_CREDENTIALS_FILE, never echoed back to any client (GET
+ *   only ever reports whether one is configured, not its value).
  *
  * express.json() is applied only to routes that need it (not app-wide) since
  * MM core doesn't register a body parser on the shared Express app itself,
@@ -87,6 +107,11 @@ module.exports = NodeHelper.create({
 			Log.error("[MMM-Earth3D node_helper] could not create presets/themes-user.js (" + err.message + ") - theme save/duplicate will fail until this is fixed");
 		}
 		this.pendingConfigRequests = [];
+
+		this.flightTracker = createFlightTracker({
+			sendSocketNotification: (notification, payload) => this.sendSocketNotification(notification, payload),
+			credentialsFile: FLIGHT_CREDENTIALS_FILE
+		});
 
 		// Short-URL alias for the control panel - see the header comment above.
 		// Registered on the shared Express app, not namespaced under
@@ -124,11 +149,34 @@ module.exports = NodeHelper.create({
 				res.status(400).json({ error: err.message });
 			}
 		});
+
+		this.expressApp.get("/MMM-Earth3D/flights/status", (req, res) => {
+			res.json(this.flightTracker.getStatus());
+		});
+
+		this.expressApp.get("/MMM-Earth3D/flights/credentials", (req, res) => {
+			res.json({ configured: this.flightTracker.getCredentialsConfigured() });
+		});
+
+		this.expressApp.post("/MMM-Earth3D/flights/credentials", express.json(), (req, res) => {
+			try {
+				this.flightTracker.setCredentials(req.body || {});
+				Log.info("[MMM-Earth3D node_helper] flight credentials " + ((req.body || {}).clear ? "cleared" : "updated"));
+				res.json({ success: true, configured: this.flightTracker.getCredentialsConfigured() });
+			} catch (err) {
+				res.status(400).json({ error: err.message });
+			}
+		});
 	},
 
 	socketNotificationReceived: function (notification, payload) {
 		if (notification === "EARTH3D_REQUEST_SERVER_TIME") {
 			this.sendSocketNotification("EARTH3D_SERVER_TIME", { now: Date.now() });
+			return;
+		}
+
+		if (notification === "EARTH3D_FLIGHTS_STATE") {
+			this.flightTracker.configure(payload);
 			return;
 		}
 

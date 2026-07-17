@@ -1,6 +1,6 @@
 ---
 name: mmm-earth3d-control
-description: Control a running MMM-Earth3D 3D globe module (MagicMirror) over its local HTTP API — change theme, camera, atmosphere, texture, background, quality, day/night, clouds, rotation speed, or manage saved themes. Use when asked to change, tune, animate, or inspect the Earth3D globe display.
+description: Control a running MMM-Earth3D 3D globe module (MagicMirror) over its local HTTP API — change theme, camera, atmosphere, texture, background, quality, day/night, clouds, rotation speed, real-time flight tracking, or manage saved themes. Use when asked to change, tune, animate, track a flight on, or inspect the Earth3D globe display.
 metadata:
   base_url: http://192.168.1.42:8090
 ---
@@ -14,8 +14,8 @@ configuration in real time (no MagicMirror restart or page reload needed).
 
 **Base URL for this deployment: `http://192.168.1.42:8090`**
 
-All three endpoints below are relative to that base URL. This is a bare LAN
-HTTP API with no authentication — treat the base URL itself as the access
+All endpoints below are relative to that base URL. This is a bare LAN HTTP
+API with no authentication — treat the base URL itself as the access
 control boundary.
 
 ## Mental model
@@ -26,7 +26,7 @@ with these top-level fields:
 | Field | Type | Notes |
 |---|---|---|
 | `theme` | string \| `"custom"` | id from the theme list (see below), or `"custom"` to use the fields below individually |
-| `rotationSpeed` | number 0-100 | spin speed, 0 = stopped |
+| `rotationSpeed` | number 0-100 | spin speed, 0 = stopped, saturates at 25 (see below) |
 | `quality` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` | render/texture quality tier |
 | `atmosphere` | object | `{ preset, color, altitude, opacity }` |
 | `texture` | object | `{ preset, imageUrl, bumpImageUrl }` |
@@ -34,6 +34,7 @@ with these top-level fields:
 | `camera` | object | `{ preset, zoom, rotate: {x,y,z}, position: {x,y,z} }` |
 | `dayNight` | object | `{ mode: "disabled"\|"realtime"\|"custom", rotate }` |
 | `clouds` | object | `{ enabled, source: "static"\|"realtime", opacity }` |
+| `flights` | object | `{ enabled, flightNumber, track, pollInterval }` — real-time flight tracking, see below. **Not** part of `theme` (switching theme never changes or clears it, and it's never included in `theme` save/duplicate) — it's session/operational state, not a visual look. |
 
 You change it by **POSTing a sparse partial** — only include the fields you
 want to change. Everything else keeps its current value. Send `null` for a
@@ -161,6 +162,50 @@ already has its own resolved config; theme *file* edits only matter on next
 load, while `set-config` with a theme id switches the live display right now
 regardless of whether that theme is user- or built-in-sourced.
 
+### 4. `GET /MMM-Earth3D/flights/status` — read live flight-tracking state
+
+Unlike `GET /MMM-Earth3D/config`, this answers directly from node_helper's own
+state (no round-trip to the browser tab) since node_helper itself owns the
+OpenSky polling loop, not the module.
+
+```bash
+curl -sS http://192.168.1.42:8090/MMM-Earth3D/flights/status
+```
+
+Response shape:
+```json
+{
+  "flightNumber": "UA123", "found": true, "lat": 40.71, "lng": -73.99,
+  "altitude": 10500, "heading": 271, "velocity": 230, "onGround": false,
+  "timestamp": 1730000000000, "lastPollAt": 1730000005000, "lastError": null,
+  "apiMode": "anonymous", "enabled": true, "track": false, "pollInterval": 20,
+  "credentialsConfigured": false
+}
+```
+`found: false` means no current match for `flightNumber` — either it isn't
+airborne right now, or OpenSky has no live position report for it.
+
+### 5. `GET`/`POST /MMM-Earth3D/flights/credentials` — optional OpenSky API tier
+
+The Flight layer works with **zero setup** (anonymous OpenSky access, 400
+requests/day). Setting a free OpenSky account's OAuth2 client credentials
+here raises that to 4000/day, with automatic fallback to anonymous for any
+poll where the registered call fails. Credentials are stored server-side
+only and **never** echoed back — `GET` only ever reports whether one is set.
+
+```bash
+curl -sS http://192.168.1.42:8090/MMM-Earth3D/flights/credentials
+# => {"configured": false}
+
+curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/flights/credentials \
+  -H "content-type: application/json" \
+  -d '{"clientId": "...", "clientSecret": "..."}'
+
+# Remove saved credentials, revert to anonymous:
+curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/flights/credentials \
+  -H "content-type: application/json" -d '{"clear": true}'
+```
+
 ## Reference: built-in preset and theme IDs
 
 These ids exist out of the box (a deployment may also have extra ids in its
@@ -187,7 +232,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 
 | Field | Range/values |
 |---|---|
-| `rotationSpeed` | `0`-`100` (0 = stopped, ~36s/revolution at 100) |
+| `rotationSpeed` | `0`-`100` accepted, but `25` and above all give the same (fastest) speed - ~144s/revolution. `0` = stopped. |
 | `camera.zoom` | `0`-`100` (0 = far, 100 = close) |
 | `camera.rotate.{x,y,z}` / `camera.position.{x,y,z}` | degrees / scene units — needs tuning by eye |
 | `quality` | `low` \| `medium` \| `high` \| `ultra` |
@@ -199,6 +244,10 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 | `clouds.opacity` | `0`-`1` |
 | `background.enabled` | `true` \| `false` |
 | `background.preset` | `night-sky` \| `custom` (with `background.imageUrl`) |
+| `flights.flightNumber` | IATA flight number string, e.g. `"UA123"` (converted to an OpenSky callsign server-side; obscure airlines may need the ICAO form directly, e.g. `"UAL123"`) |
+| `flights.enabled` | `true` \| `false` — shows the marker and drives polling |
+| `flights.track` | `true` \| `false` — `true` rotates the globe/background to keep the tracked flight centered on camera instead of the normal camera behavior |
+| `flights.pollInterval` | `10`-`300` seconds between OpenSky polls |
 
 ## Common agent recipes
 
@@ -214,5 +263,13 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 **"Turn on/off the starry background":** `{"background": {"enabled": true}}` / `{"background": {"enabled": false}}`.
 
 **"Make it look like <theme name>":** `{"theme": "<id>"}` from the table above.
+
+**"Track flight UA123":** `{"flights": {"enabled": true, "flightNumber": "UA123"}}`.
+
+**"Center the camera on the tracked flight" / "follow it":** `{"flights": {"track": true}}` (needs `flights.enabled` already true from a prior call).
+
+**"Stop tracking":** `{"flights": {"enabled": false}}` (leaves `flightNumber`/`track` as-is, so re-enabling resumes the same flight).
+
+**"Is the flight actually showing up?":** `GET /MMM-Earth3D/flights/status` — check `found` and `lastError`.
 
 **"Go back to normal/default":** `{"theme": "custom"}` alone is enough — switching theme resets every field's override (rotationSpeed, quality, atmosphere, texture, background, camera, dayNight, clouds) back to its config.js/module default, as long as that same request doesn't also set one of those fields directly.

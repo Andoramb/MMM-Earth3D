@@ -57,6 +57,20 @@ Module.register("MMM-Earth3D", {
 			opacity: 0.8 // 0-1
 		},
 
+		// Session/operational, not a visual look - unlike every field above,
+		// this one is deliberately excluded from theme switching (see
+		// applyLiveConfig()'s theme-change field-clearing list) and from
+		// "Save into theme" (see node_helper.js's saveThemeOverrides()) -
+		// see skills/mmm-earth3d-control/SKILL.md for the full rationale.
+		// node_helper.js's OpenSky poller (lib/flightTracker.js) learns this
+		// over EARTH3D_FLIGHTS_STATE, not by reading config.js itself.
+		flights: {
+			enabled: false, // shows the tracked flight's marker and drives node_helper's OpenSky polling
+			flightNumber: "", // IATA flight number, e.g. "UA123" - resolved to an OpenSky callsign server-side (see lib/iataToIcaoAirlines.js)
+			track: false, // true = globe/background rotate to keep the tracked flight centered on camera (see Earth3DRenderer.tick()); false = normal camera behavior
+			pollInterval: 20 // seconds between OpenSky polls while enabled, 10-300
+		},
+
 		debug: false // logs every live-config notification and apply*() call to the browser console via Log.info
 	},
 
@@ -113,6 +127,7 @@ Module.register("MMM-Earth3D", {
 
 		this.captureUserOverrides();
 		this.resolveConfig();
+		this.sendFlightsState();
 	},
 
 	getStyles: function () {
@@ -229,7 +244,8 @@ Module.register("MMM-Earth3D", {
 			background: this.captureOverride("background"),
 			camera: this.captureOverride("camera", ["rotate", "position"]),
 			dayNight: this.captureOverride("dayNight"),
-			clouds: this.captureOverride("clouds")
+			clouds: this.captureOverride("clouds"),
+			flights: this.captureOverride("flights")
 		};
 	},
 
@@ -268,6 +284,7 @@ Module.register("MMM-Earth3D", {
 		this.resolveAssetConfig("camera", theme, ["rotate", "position"]);
 		this.resolveDirectConfig("dayNight", theme, []);
 		this.resolveDirectConfig("clouds", theme, []);
+		this.resolveDirectConfig("flights", theme, []);
 	},
 
 	// Plain top-level values (rotationSpeed, quality): override > theme > default.
@@ -478,6 +495,17 @@ Module.register("MMM-Earth3D", {
 			return;
 		}
 
+		// Live position from node_helper's OpenSky poller (lib/flightTracker.js) -
+		// not a config change, so this bypasses handleSetConfig()/applyLiveConfig()
+		// entirely and goes straight to the renderer.
+		if (notification === "EARTH3D_FLIGHT_POSITION") {
+			this.debugLog("EARTH3D_FLIGHT_POSITION", payload);
+			if (this.renderer) {
+				this.renderer.updateFlightPosition(payload);
+			}
+			return;
+		}
+
 		// control.html's Home page buttons (theme switch, save/duplicate/
 		// delete) need to know the actual resolved config/overrides to fill
 		// their controls and to know what "current settings" means - answered
@@ -503,6 +531,16 @@ Module.register("MMM-Earth3D", {
 			return;
 		}
 		this.applyLiveConfig(payload || {});
+	},
+
+	// Tells node_helper.js's flight tracker (lib/flightTracker.js) what the
+	// resolved flights config currently is, so its OpenSky polling lifecycle
+	// stays in sync regardless of which of the three ways a config change
+	// can arrive (this module's own node_helper, MM's notification bus via
+	// MMM-Remote-Control, or a direct config.js value at startup) - all of
+	// them funnel through here (start(), and applyLiveConfig() below).
+	sendFlightsState: function () {
+		this.sendSocketNotification("EARTH3D_FLIGHTS_STATE", this.config.flights);
 	},
 
 	// Live-tunes the running globe without a page reload. Reachable two ways:
@@ -559,8 +597,9 @@ Module.register("MMM-Earth3D", {
 		const cameraChanged = Boolean(partial.camera);
 		const dayNightChanged = Boolean(partial.dayNight);
 		const cloudsChanged = Boolean(partial.clouds);
+		const flightsChanged = Boolean(partial.flights);
 
-		this.debugLog("applyLiveConfig flags", { themeChanged, atmosphereChanged, textureChanged, backgroundChanged, cameraChanged, dayNightChanged, cloudsChanged, rotationSpeedChanged: partial.rotationSpeed !== undefined, qualityChanged: partial.quality !== undefined });
+		this.debugLog("applyLiveConfig flags", { themeChanged, atmosphereChanged, textureChanged, backgroundChanged, cameraChanged, dayNightChanged, cloudsChanged, flightsChanged, rotationSpeedChanged: partial.rotationSpeed !== undefined, qualityChanged: partial.quality !== undefined });
 
 		if (atmosphereChanged) {
 			this.mergeOverride("atmosphere", partial.atmosphere, []);
@@ -580,11 +619,14 @@ Module.register("MMM-Earth3D", {
 		if (cloudsChanged) {
 			this.mergeOverride("clouds", partial.clouds, []);
 		}
+		if (flightsChanged) {
+			this.mergeOverride("flights", partial.flights, []);
+		}
 
 		const previousQuality = this.config.quality;
 
 		if (themeChanged || atmosphereChanged || textureChanged || backgroundChanged || cameraChanged
-			|| dayNightChanged || cloudsChanged
+			|| dayNightChanged || cloudsChanged || flightsChanged
 			|| partial.rotationSpeed !== undefined || partial.quality !== undefined) {
 			this.resolveConfig();
 			this.debugLog("resolved config after applyLiveConfig", JSON.stringify(this.config));
@@ -611,6 +653,13 @@ Module.register("MMM-Earth3D", {
 		}
 		if (themeChanged || cloudsChanged) {
 			this.renderer.applyClouds();
+		}
+		if (flightsChanged) {
+			// Not gated by themeChanged (unlike every field above) - flights
+			// is deliberately not part of theme switching, see defaults.flights'
+			// own comment - so this only ever fires when flights itself changed.
+			this.renderer.applyFlights();
+			this.sendFlightsState();
 		}
 		if (this.config.quality !== previousQuality) {
 			this.renderer.applyQuality();
