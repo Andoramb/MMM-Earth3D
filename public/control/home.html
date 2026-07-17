@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMM-Earth3D Control</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+	<a class="nav-item active" href="home.html">Home</a>
+	<a class="nav-item" href="planet-env.html">Planet &amp; Env</a>
+	<a class="nav-item" href="layers.html">Layers</a>
+</nav>
+
+<main>
+	<div class="status" id="status"></div>
+
+	<h1>MMM-Earth3D</h1>
+	<p class="intro">
+		Live control panel for the rotating 3D Earth module. Pick a theme
+		below for a ready-made look, or head to <strong>Planet &amp; Env</strong>
+		and <strong>Layers</strong> to customize things individually - any
+		field you touch there stays yours even after picking a theme, until
+		you hit its <span class="reset-btn" style="display:inline-block;vertical-align:middle;">↺</span> reset button.
+	</p>
+
+	<section data-panel="theme">
+		<fieldset>
+			<legend>Theme</legend>
+			<div class="row">
+				<select id="theme">
+					<option value="custom">Custom (per-asset settings)</option>
+				</select>
+			</div>
+			<div class="row theme-actions">
+				<button type="button" id="themeDuplicateBtn">Duplicate current theme</button>
+				<button type="button" id="themeSaveBtn">Save current settings to theme</button>
+				<button type="button" id="themeDeleteBtn">Delete theme</button>
+			</div>
+			<p class="intro" style="margin:8px 0 0;">
+				Duplicate/Save/Delete only ever edit <code>presets/themes-user.js</code>
+				on disk (gitignored, never the built-in themes in
+				<code>presets/themes.js</code>) - the running display needs a
+				reload/restart to pick up the change, same as any other preset
+				file edit.
+			</p>
+		</fieldset>
+	</section>
+</main>
+
+<!--
+	Absolute, not relative (../../presets/...) - this page is now reachable
+	at two different URL prefixes (/modules/MMM-Earth3D/public/control/ and
+	the short /earth3d/ alias, see node_helper.js), and a relative path would
+	resolve differently under each. /modules/MMM-Earth3D/ is MM core's own
+	static mount for this module's whole directory, stable regardless of
+	which URL served this HTML file itself.
+-->
+<script src="/modules/MMM-Earth3D/presets/atmosphere.js"></script>
+<script src="/modules/MMM-Earth3D/presets/earthTextures.js"></script>
+<script src="/modules/MMM-Earth3D/presets/backgrounds.js"></script>
+<script src="/modules/MMM-Earth3D/presets/camera.js"></script>
+<script src="/modules/MMM-Earth3D/presets/themes.js"></script>
+<script src="/modules/MMM-Earth3D/presets/themes-user.js"></script>
+<script type="module" src="core.js"></script>
+
+</body>
+</html>

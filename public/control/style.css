@@ -1,0 +1,153 @@
+/*
+ * Shared styles for the MMM-Earth3D control panel (public/control/*.html).
+ * One file, linked from every page, instead of the same <style> block
+ * copy-pasted into home.html/planet-env.html/layers.html.
+ */
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+	margin: 0;
+	background: #111;
+	color: #eee;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	display: flex;
+	min-height: 100vh;
+}
+.sidebar {
+	flex: 0 0 140px;
+	background: #161616;
+	border-right: 1px solid #2a2a2a;
+	padding: 16px 0;
+}
+.sidebar .nav-item {
+	display: block;
+	width: 100%;
+	background: none;
+	border: none;
+	border-left: 3px solid transparent;
+	color: #aaa;
+	font-size: 14px;
+	text-align: left;
+	text-decoration: none;
+	padding: 12px 16px;
+	cursor: pointer;
+}
+.sidebar .nav-item.active {
+	color: #fff;
+	border-left-color: #4aa8ff;
+	background: #1c1c1c;
+}
+main {
+	flex: 1;
+	padding: 16px 20px 40px;
+	max-width: 480px;
+}
+h1 {
+	font-size: 18px;
+	font-weight: 600;
+	margin: 4px 0 4px;
+}
+h2 {
+	font-size: 14px;
+	font-weight: 600;
+	color: #9cf;
+	margin: 0 0 8px;
+}
+p.intro {
+	font-size: 13px;
+	color: #999;
+	line-height: 1.5;
+}
+.status {
+	font-size: 13px;
+	min-height: 18px;
+	margin-bottom: 12px;
+	color: #8f8;
+}
+.status.error { color: #f88; }
+.badge {
+	display: inline-block;
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: #d99;
+	border: 1px solid #533;
+	border-radius: 4px;
+	padding: 1px 6px;
+	margin-left: 6px;
+}
+fieldset {
+	border: 1px solid #333;
+	border-radius: 8px;
+	margin-bottom: 16px;
+	padding: 12px 16px 16px;
+}
+legend {
+	padding: 0 6px;
+	font-size: 13px;
+	color: #aaa;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 10px 0;
+	font-size: 14px;
+}
+label span.name { flex: 0 0 66px; }
+label span.value { flex: 0 0 40px; text-align: right; color: #9cf; }
+input[type="range"] { flex: 1; min-width: 0; }
+input[type="color"] {
+	flex: 1;
+	height: 32px;
+	background: none;
+	border: 1px solid #333;
+	border-radius: 6px;
+	padding: 2px;
+}
+input[type="text"], select {
+	width: 100%;
+	background: #1c1c1c;
+	color: #eee;
+	border: 1px solid #333;
+	border-radius: 6px;
+	padding: 8px;
+	font-size: 14px;
+}
+input[type="checkbox"] { width: 18px; height: 18px; }
+.reset-btn {
+	flex: 0 0 auto;
+	background: #1c1c1c;
+	color: #9cf;
+	border: 1px solid #333;
+	border-radius: 6px;
+	width: 26px;
+	height: 26px;
+	font-size: 13px;
+	cursor: pointer;
+	line-height: 1;
+}
+.reset-btn:hover { background: #262626; }
+.row { margin-bottom: 10px; }
+.sub-row { display: none; }
+.sub-row.visible { display: block; }
+.theme-actions { display: flex; flex-direction: column; gap: 8px; }
+.theme-actions button {
+	background: #1c1c1c;
+	color: #eee;
+	border: 1px solid #333;
+	border-radius: 6px;
+	padding: 8px;
+	font-size: 13px;
+	cursor: pointer;
+}
+.theme-actions button:hover { background: #262626; }
+#themeDeleteBtn { color: #f88; }
+code {
+	background: #1c1c1c;
+	border-radius: 4px;
+	padding: 1px 5px;
+	font-size: 12px;
+}

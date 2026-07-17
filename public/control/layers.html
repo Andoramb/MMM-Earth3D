@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMM-Earth3D Control - Layers</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+	<a class="nav-item" href="home.html">Home</a>
+	<a class="nav-item" href="planet-env.html">Planet &amp; Env</a>
+	<a class="nav-item active" href="layers.html">Layers</a>
+</nav>
+
+<main>
+	<div class="status" id="status"></div>
+
+	<h2>Atmosphere</h2>
+	<fieldset data-panel="atmosphere">
+		<legend>Settings</legend>
+		<div class="row">
+			<select id="atmospherePreset">
+				<option value="custom">Custom</option>
+			</select>
+		</div>
+		<label>
+			<span class="name">Color</span>
+			<input type="color" id="atmosphereColor" value="#4aa8ff">
+			<button type="button" class="reset-btn" data-reset-target="atmosphereColor" title="Reset to theme default">↺</button>
+		</label>
+		<label>
+			<span class="name">Altitude</span>
+			<input type="range" id="atmosphereAltitude" min="0" max="50" value="15">
+			<span class="value" id="atmosphereAltitude-val">15</span>
+			<button type="button" class="reset-btn" data-reset-target="atmosphereAltitude" title="Reset to theme default">↺</button>
+		</label>
+		<label>
+			<span class="name">Opacity</span>
+			<input type="range" id="atmosphereOpacity" min="0" max="100" value="100">
+			<span class="value" id="atmosphereOpacity-val">100</span>
+			<button type="button" class="reset-btn" data-reset-target="atmosphereOpacity" title="Reset to theme default">↺</button>
+		</label>
+	</fieldset>
+
+	<h2>Day / Night</h2>
+	<fieldset data-panel="day-night">
+		<legend>Settings</legend>
+		<div class="row">
+			<select id="dayNightMode">
+				<option value="disabled" selected>Disabled</option>
+				<option value="realtime">Realtime (sun position)</option>
+				<option value="custom">Custom (fixed angle)</option>
+			</select>
+		</div>
+		<label class="sub-row" id="dayNightRotateRow">
+			<span class="name">Angle</span>
+			<input type="range" id="dayNightRotate" min="0" max="360" value="0">
+			<span class="value" id="dayNightRotate-val">0</span>
+		</label>
+	</fieldset>
+
+	<h2>Clouds</h2>
+	<fieldset data-panel="clouds">
+		<legend>Settings</legend>
+		<div class="row">
+			<select id="cloudsSource">
+				<option value="disabled">Disabled</option>
+				<option value="static">Standard (Blue Marble)</option>
+				<option value="realtime">Realtime (NASA GIBS)</option>
+			</select>
+			<p class="intro sub-row" id="cloudsSourceHint" style="margin:6px 0 0;">
+				Realtime polls NASA GIBS every 24 hours - that's how often
+				its underlying satellite composite actually updates.
+			</p>
+		</div>
+		<label class="sub-row" id="cloudsOpacityRow">
+			<span class="name">Opacity</span>
+			<input type="range" id="cloudsOpacity" min="0" max="100" value="80">
+			<span class="value" id="cloudsOpacity-val">80</span>
+		</label>
+	</fieldset>
+</main>
+
+<!-- Absolute paths - see home.html's comment above these tags for why. -->
+<script src="/modules/MMM-Earth3D/presets/atmosphere.js"></script>
+<script src="/modules/MMM-Earth3D/presets/earthTextures.js"></script>
+<script src="/modules/MMM-Earth3D/presets/backgrounds.js"></script>
+<script src="/modules/MMM-Earth3D/presets/camera.js"></script>
+<script src="/modules/MMM-Earth3D/presets/themes.js"></script>
+<script src="/modules/MMM-Earth3D/presets/themes-user.js"></script>
+<script type="module" src="core.js"></script>
+
+</body>
+</html>

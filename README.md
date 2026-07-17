@@ -49,6 +49,10 @@ directory's README for why, and how to regenerate it after a version bump).
 		texture: {
 			preset: "blue-marble"
 		},
+		background: {
+			enabled: false,
+			preset: "night-sky"
+		},
 		camera: {
 			preset: "custom",
 			zoom: 50,
@@ -80,6 +84,8 @@ directory's README for why, and how to regenerate it after a version bump).
 | `atmosphere.altitude`    | number | `0.15`  | Atmosphere glow thickness (three-globe's `atmosphereAltitude`, roughly `0`-`0.5`). Only used when `preset` is `"custom"`. |
 | `atmosphere.opacity`     | number | `1`     | `0` hides the atmosphere entirely, `>0` shows it. Not a native three-globe concept - approximated as an on/off threshold rather than true alpha blending. Only used when `preset` is `"custom"`. |
 | `texture.preset`         | string \| `"custom"` | `"blue-marble"` | An id from `presets/earthTextures.js`, or `"custom"` with `texture.imageUrl` / `texture.bumpImageUrl` for your own fixed texture. |
+| `background.enabled`     | boolean | `false` | Whether to show the background starfield sphere. Off by default. |
+| `background.preset`      | string \| `"custom"` | `"night-sky"` | An id from `presets/backgrounds.js`, or `"custom"` with `background.imageUrl` for your own fixed background. Only used when `enabled` is `true`. See [Background](#background). |
 | `camera.preset`          | string \| `"custom"` | `"custom"` | An id from `presets/camera.js` (overrides zoom/rotate/position below), or `"custom"` to use those fields directly. |
 | `camera.zoom`            | number | `50`    | Camera distance, `0` (far) to `100` (close). Only used when `preset` is `"custom"`. Needs fine-tuning by eye once visible. |
 | `camera.rotate`          | `{x,y,z}` \| `[x,y,z]` | `{0,0,0}` | Fixed tilt of the globe's resting orientation, in degrees (`0`-`360`). Only used when `preset` is `"custom"`. Independent of `rotationSpeed` — the globe spins while sitting at this tilt. |
@@ -102,6 +108,7 @@ MMM-Earth3D/
 ├── presets/
 │   ├── atmosphere.js     # color, altitude, opacity
 │   ├── earthTextures.js  # texture image sets (per resolution tier)
+│   ├── backgrounds.js    # background starfield images
 │   ├── camera.js         # zoom, rotate, position
 │   ├── themes.js         # named bundles covering every config field
 │   └── themes-user.js    # themes made via control.html - gitignored, see below
@@ -119,9 +126,9 @@ with a `git pull` of this file, and the module treats both files as one
 combined theme list.
 
 **A theme can set literally any config field** — `rotationSpeed`, `quality`,
-`atmosphere`, `texture`, `camera`, `dayNight`, `clouds` — not just reference
-other presets by id. For `atmosphere`/`texture`/`camera`, a theme field can
-be either:
+`atmosphere`, `texture`, `background`, `camera`, `dayNight`, `clouds` — not
+just reference other presets by id. For `atmosphere`/`texture`/`background`/
+`camera`, a theme field can be either:
 - a **string**, referencing another preset's id (e.g. `camera: "close-up"`), or
 - an **object**, with literal values inline (e.g. `camera: { zoom: 30, rotate: [10, 0, 0] }`)
 
@@ -135,7 +142,7 @@ example combining all of this.
 
 **Resolution order**, most to least authoritative, per field:
 1. An explicit raw value in `config.js` (e.g. `atmosphere: { altitude: 0.22 }`) or in a live `EARTH3D_SET_CONFIG` update.
-2. For `atmosphere`/`texture`/`camera`: that asset's own `preset` id, if set (e.g. `camera: { preset: "close-up" }`).
+2. For `atmosphere`/`texture`/`background`/`camera`: that asset's own `preset` id, if set (e.g. `camera: { preset: "close-up" }`).
 3. The active `theme`'s value for that field, if a theme is set (literal or a referenced preset id, per above).
 4. The module default.
 
@@ -154,7 +161,7 @@ having to duplicate the whole theme as a custom preset.
 
 Every preset and theme is validated once at startup - an entry missing a
 required field (or malformed) is dropped with a `Log.warn`, not a crash.
-Atmosphere/texture/camera preset schemas nest their fields under a key
+Atmosphere/texture/background/camera preset schemas nest their fields under a key
 matching the config property they configure (e.g. `{ id, name, atmosphere:
 { color, altitude, opacity } }`), so the renderer can safely ignore fields
 it doesn't use yet (like `opacity`'s blending) without a schema change
@@ -165,7 +172,24 @@ config namespace, not a preset-registry asset, since it's fetched/composited
 rather than picked from a fixed style list; set it directly in a theme or
 config.js the same way as any other field, e.g. `clouds: { enabled: true }`.
 
-Earth textures are sourced from [Solar System Scope](https://www.solarsystemscope.com/textures/) (2k/8k daymaps, CC BY 4.0) and [three-globe](https://github.com/vasturiano/three-globe)'s example assets (4k daymap, bump map).
+Earth textures are sourced from [Solar System Scope](https://www.solarsystemscope.com/textures/) (2k/8k daymaps, CC BY 4.0) and [three-globe](https://github.com/vasturiano/three-globe)'s example assets (4k daymap, bump map). The `night-sky` background is also one of three-globe's example assets.
+
+### Background
+
+`background.enabled` turns on a giant textured sphere surrounding the whole
+scene, viewed from inside; `background.preset` (from `presets/backgrounds.js`)
+picks which image. This is inspired by globe.gl's `backgroundImageUrl`
+([choropleth-countries example](https://github.com/vasturiano/globe.gl/blob/master/example/choropleth-countries/index.html))
+but deliberately **not** a re-implementation of it: globe.gl's version (see
+its underlying [three-render-objects](https://github.com/vasturiano/three-render-objects)
+package) adds the sphere directly to the scene, independent of the globe, so
+it stays fixed like a real sky while only the globe spins. This module
+instead attaches the background sphere as a child of the same rotating globe
+group the surface texture and clouds sit on, so it visibly spins in lockstep
+with the planet — a deliberate stylistic choice, not an astronomy simulator.
+Radius is a fixed multiple of the globe's own radius (see
+`BACKGROUND_SPHERE_RADIUS_MULTIPLIER` in `public/Earth3DRenderer.js`), sized
+to stay inside the camera's far plane and well outside its closest zoom.
 
 ### Day/Night and Clouds
 
@@ -212,8 +236,8 @@ as [three-globe's own official clouds example](https://github.com/vasturiano/thr
 
 ## Live tuning (no restart or reload)
 
-`theme`, `rotationSpeed`, `atmosphere`, `texture`, `camera`, `quality`,
-`dayNight`, and `clouds` can all be changed on the running globe without
+`theme`, `rotationSpeed`, `atmosphere`, `texture`, `background`, `camera`,
+`quality`, `dayNight`, and `clouds` can all be changed on the running globe without
 editing `config.js` or restarting MagicMirror, by sending an
 `EARTH3D_SET_CONFIG` notification with a partial config object as payload -
 the same resolution order described above applies, so `{"theme": "nasa"}` or
@@ -239,11 +263,38 @@ curl -X POST "http://<mirror-host>:8080/MMM-Earth3D/set-config" \
 	-d '{"camera": {"zoom": 30}}'
 ```
 
-For interactive tuning, open `public/control.html` from this module in a browser
-(e.g. `http://<mirror-host>:8080/modules/MMM-Earth3D/public/control.html`) — a
-small self-contained page with sliders for every option above, wired to the same
-endpoint. This page is a standalone dev tool, not part of the MagicMirror module
-itself, so it isn't rendered on the mirror.
+For interactive tuning, open the control panel in a browser at
+**`http://<mirror-host>:8080/earth3d.html`** — a short URL registered directly
+on MagicMirror's shared Express app (`node_helper.js`), the same way
+MMM-Remote-Control serves itself at `/remote.html` instead of under its own
+`/modules/...` path. The full path still works too
+(`.../modules/MMM-Earth3D/public/control/home.html`, or the even older
+`.../public/control.html`, which redirects there) - `/earth3d/*` is just a
+second mount point for the exact same files, not a copy. Three pages
+(**Home**, **Planet & Env**, **Layers**) with sliders for every option above,
+wired to the same endpoint. This is a standalone dev tool, not part of the
+MagicMirror module itself, so it isn't rendered on the mirror.
+
+The control panel's own source lives under `public/control/`:
+```
+public/control/
+├── style.css       # shared styles, linked from every page
+├── core.js         # send()/fetch()/status/reset-button helpers, plus the
+│                    # panel loader below
+├── home.html, planet-env.html, layers.html
+└── panels/         # one small ES module per config panel - theme.js,
+    ├── theme.js    # rotation-speed.js, texture.js, background.js,
+    ├── ...         # camera.js, atmosphere.js, day-night.js, clouds.js
+```
+Each page marks the fieldsets it contains with `data-panel="<name>"`; `core.js`
+scans for those attributes on load and dynamically `import()`s the matching
+`panels/<name>.js` - so a page only loads the panels it actually declares, and
+adding a new control to a page is just adding a `data-panel` block to its HTML
+plus a `panels/<name>.js` file exporting `init(ctx)`/`applyConfig(config, ctx)`,
+not editing a central script. This is unrelated to `MMM-Earth3D.js`'s own
+`getScripts()` (see [Themes](#themes) above) - the control panel is fetched
+directly by a browser hitting its URL, not loaded through MagicMirror's module
+loader, so it's free to use real ES modules across multiple files.
 
 Picking a theme (or anything else) refreshes every control on the page to match
 what actually got resolved, via `GET /MMM-Earth3D/config` - node_helper.js asks

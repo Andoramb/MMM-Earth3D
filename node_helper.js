@@ -23,6 +23,8 @@ const USER_THEMES_HEADER = "/* global window */\n\n"
 	+ " * nothing stops you hand-editing this one too.\n"
 	+ " */\n";
 
+const CONTROL_PANEL_DIR = path.join(__dirname, "public", "control");
+
 // How long to wait for the module's front-end to answer an
 // EARTH3D_REQUEST_CONFIG round-trip before giving up on a GET
 // /MMM-Earth3D/config request - generous, since it's just socket.io
@@ -33,10 +35,17 @@ const CONFIG_REQUEST_TIMEOUT_MS = 3000;
 /*
  * node_helper for MMM-Earth3D
  *
- * Three jobs, all existing to let control.html (or curl, or any other client
+ * Four jobs, all existing to let control.html (or curl, or any other client
  * on the LAN) drive the running globe without needing MMM-Remote-Control
  * installed:
  *
+ * - /earth3d/* serves the control panel itself (public/control/) at a short,
+ *   memorable URL - mirroring how MMM-Remote-Control serves its own UI at
+ *   /remote.html rather than under /modules/MMM-Remote-Control/. It's a
+ *   second mount point for the exact same directory MM core already serves
+ *   at /modules/MMM-Earth3D/public/control/ (not a copy), so both URLs stay
+ *   in sync automatically. /earth3d.html redirects to /earth3d/home.html for
+ *   anyone who types the single-file pattern /remote.html suggests.
  * - POST /MMM-Earth3D/set-config relays its body to the module over MM's
  *   normal node_helper<->module socket channel; MMM-Earth3D.js's
  *   socketNotificationReceived() does the actual work via applyLiveConfig().
@@ -78,6 +87,12 @@ module.exports = NodeHelper.create({
 			Log.error("[MMM-Earth3D node_helper] could not create presets/themes-user.js (" + err.message + ") - theme save/duplicate will fail until this is fixed");
 		}
 		this.pendingConfigRequests = [];
+
+		// Short-URL alias for the control panel - see the header comment above.
+		// Registered on the shared Express app, not namespaced under
+		// /MMM-Earth3D/..., so it's reachable at a memorable top-level path.
+		this.expressApp.use("/earth3d", express.static(CONTROL_PANEL_DIR));
+		this.expressApp.get("/earth3d.html", (req, res) => res.redirect("/earth3d/home.html"));
 
 		this.expressApp.post("/MMM-Earth3D/set-config", express.json(), (req, res) => {
 			// Unconditional (not gated by config.debug - that's a client-side
@@ -196,6 +211,9 @@ module.exports = NodeHelper.create({
 		}
 		if (overrides.texture) {
 			theme.texture = mergeAssetOverride(theme.texture, overrides.texture, []);
+		}
+		if (overrides.background) {
+			theme.background = mergeAssetOverride(theme.background, overrides.background, []);
 		}
 		if (overrides.camera) {
 			theme.camera = mergeAssetOverride(theme.camera, overrides.camera, ["rotate", "position"]);

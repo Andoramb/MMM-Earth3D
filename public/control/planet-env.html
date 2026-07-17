@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MMM-Earth3D Control - Planet &amp; Env</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="sidebar">
+	<a class="nav-item" href="home.html">Home</a>
+	<a class="nav-item active" href="planet-env.html">Planet &amp; Env</a>
+	<a class="nav-item" href="layers.html">Layers</a>
+</nav>
+
+<main>
+	<div class="status" id="status"></div>
+
+	<h2>Textures</h2>
+	<fieldset data-panel="texture">
+		<legend>Planet</legend>
+		<div class="row">
+			<select id="texturePreset"></select>
+		</div>
+		<div class="row">
+			<label style="margin:0 0 4px;"><span class="name">Quality</span></label>
+			<select id="quality">
+				<option value="low">Low</option>
+				<option value="medium">Medium</option>
+				<option value="high" selected>High</option>
+				<option value="ultra">Ultra</option>
+			</select>
+		</div>
+	</fieldset>
+	<fieldset data-panel="background">
+		<legend>Background</legend>
+		<div class="row">
+			<select id="backgroundPreset"></select>
+		</div>
+		<p class="intro sub-row" id="backgroundHint" style="margin:6px 0 0;">
+			A starfield sphere that spins together with the planet, rather
+			than staying fixed like a real night sky would.
+		</p>
+	</fieldset>
+
+	<h2>Rotation</h2>
+	<fieldset data-panel="rotation-speed">
+		<legend>Settings</legend>
+		<label>
+			<span class="name">Speed</span>
+			<input type="range" id="rotationSpeed" min="0" max="100" value="20">
+			<span class="value" id="rotationSpeed-val">20</span>
+			<button type="button" class="reset-btn" data-reset-target="rotationSpeed" title="Reset to default">↺</button>
+		</label>
+	</fieldset>
+
+	<h2>Position</h2>
+	<fieldset data-panel="camera">
+		<legend>Settings</legend>
+		<label>
+			<span class="name">X</span>
+			<input type="range" id="positionX" min="-200" max="200" value="0">
+			<span class="value" id="positionX-val">0</span>
+			<button type="button" class="reset-btn" data-reset-target="positionX" title="Reset to theme default">↺</button>
+		</label>
+		<label>
+			<span class="name">Y</span>
+			<input type="range" id="positionY" min="-200" max="200" value="0">
+			<span class="value" id="positionY-val">0</span>
+			<button type="button" class="reset-btn" data-reset-target="positionY" title="Reset to theme default">↺</button>
+		</label>
+		<label>
+			<span class="name">Z</span>
+			<input type="range" id="positionZ" min="-200" max="200" value="0">
+			<span class="value" id="positionZ-val">0</span>
+			<button type="button" class="reset-btn" data-reset-target="positionZ" title="Reset to theme default">↺</button>
+		</label>
+	</fieldset>
+
+	<h2>Camera</h2>
+	<fieldset data-panel="camera">
+		<legend>Settings</legend>
+		<div class="row">
+			<select id="cameraPreset">
+				<option value="custom">Custom</option>
+			</select>
+		</div>
+		<label>
+			<span class="name">Zoom</span>
+			<input type="range" id="zoom" min="0" max="100" value="50">
+			<span class="value" id="zoom-val">50</span>
+			<button type="button" class="reset-btn" data-reset-target="zoom" title="Reset to theme default">↺</button>
+		</label>
+		<label>
+			<span class="name">Rotate X</span>
+			<input type="range" id="rotateX" min="0" max="360" value="0">
+			<span class="value" id="rotateX-val">0</span>
+			<button type="button" class="reset-btn" data-reset-target="rotateX" title="Reset to theme default">↺</button>
+		</label>
+		<label>
+			<span class="name">Rotate Y</span>
+			<input type="range" id="rotateY" min="0" max="360" value="0">
+			<span class="value" id="rotateY-val">0</span>
+			<button type="button" class="reset-btn" data-reset-target="rotateY" title="Reset to theme default">↺</button>
+		</label>
+		<label>
+			<span class="name">Rotate Z</span>
+			<input type="range" id="rotateZ" min="0" max="360" value="0">
+			<span class="value" id="rotateZ-val">0</span>
+			<button type="button" class="reset-btn" data-reset-target="rotateZ" title="Reset to theme default">↺</button>
+		</label>
+	</fieldset>
+
+</main>
+
+<!-- Absolute paths - see home.html's comment above these tags for why. -->
+<script src="/modules/MMM-Earth3D/presets/atmosphere.js"></script>
+<script src="/modules/MMM-Earth3D/presets/earthTextures.js"></script>
+<script src="/modules/MMM-Earth3D/presets/backgrounds.js"></script>
+<script src="/modules/MMM-Earth3D/presets/camera.js"></script>
+<script src="/modules/MMM-Earth3D/presets/themes.js"></script>
+<script src="/modules/MMM-Earth3D/presets/themes-user.js"></script>
+<script type="module" src="core.js"></script>
+
+</body>
+</html>

@@ -45,6 +45,18 @@ const QUALITY_PRESETS = {
 	ultra: { curvatureResolution: 1, antialias: true, maxPixelRatio: 3, textureRes: "8k" }
 };
 
+// The background is a giant textured sphere viewed from inside, attached as
+// a child of the globe's own rotating group (see createGlobe()/tick()) so it
+// spins in lockstep with the surface instead of staying fixed like a real
+// night sky would - a deliberate stylistic choice for this module, not a
+// literal skybox. Radius is a multiple of the globe's own radius (globe
+// radius = 100 scene units): must stay comfortably inside the camera's far
+// plane (globeRadius * CAMERA_FAR_MULTIPLIER below) and well outside the
+// camera's maximum orbit distance (globeRadius * (1 + ZOOM_ALTITUDE_MAX) = 6x)
+// so the camera never pokes through it.
+const BACKGROUND_SPHERE_RADIUS_MULTIPLIER = 30;
+const BACKGROUND_SPHERE_SEGMENTS = 32; // viewed from deep inside a huge radius - no need for globe-grade tessellation
+
 // Camera: fov matches what this module has always rendered with (both
 // three-globe and the library it used to sit on top of just use
 // THREE.PerspectiveCamera's own default of 50) - kept as an explicit named
@@ -149,6 +161,8 @@ class Earth3DRenderer {
 
 		this.compositor = null;
 		this.cloudsLayer = null;
+		this.backgroundMesh = null;
+		this.backgroundLoadId = 0;
 		this.destroyed = false;
 		this.animating = false;
 		this.serverTimeOffsetMs = 0;
@@ -258,6 +272,7 @@ class Earth3DRenderer {
 
 		this.applyAtmosphere();
 		this.applyZoom();
+		this.applyBackground();
 
 		this.ensureCloudsLayer();
 
@@ -435,6 +450,72 @@ class Earth3DRenderer {
 		if (this.compositor) {
 			this.compositor.setDayImage(textures.image);
 		}
+	}
+
+	// Toggles/swaps the background sphere (see BACKGROUND_SPHERE_RADIUS_MULTIPLIER
+	// above for why it's attached to threeGlobeObj rather than the scene
+	// directly). Disabling just hides the existing mesh rather than disposing
+	// it, so re-enabling the same preset is instant - no re-fetch/re-decode.
+	applyBackground() {
+		const url = this.resolveBackgroundUrl();
+		this.debugLog("applyBackground", url);
+		if (!url) {
+			if (this.backgroundMesh) {
+				this.backgroundMesh.visible = false;
+			}
+			return;
+		}
+		if (this.backgroundMesh && this.backgroundMesh.userData.url === url) {
+			this.backgroundMesh.visible = true;
+			return;
+		}
+		this.loadBackgroundTexture(url);
+	}
+
+	resolveBackgroundUrl() {
+		const background = this.config.background;
+		if (!background || !background.enabled) {
+			return null;
+		}
+		if (background.preset === "custom") {
+			return background.imageUrl || null;
+		}
+		const preset = (window.EARTH3D_PRESETS.background || []).find((entry) => entry.id === background.preset);
+		if (!preset || !preset.background.imageUrl) {
+			return null;
+		}
+		return this.assetPath(preset.background.imageUrl);
+	}
+
+	// requestId guards against a slow-loading earlier request (e.g. switching
+	// preset twice quickly) clobbering a newer one that already finished -
+	// the same instinct as ignoring a stale network response anywhere else.
+	loadBackgroundTexture(url) {
+		if (!this.threeGlobeObj || !this.THREE) {
+			return;
+		}
+		const requestId = ++this.backgroundLoadId;
+		new this.THREE.TextureLoader().load(url, (texture) => {
+			if (this.destroyed || requestId !== this.backgroundLoadId) {
+				texture.dispose();
+				return;
+			}
+			texture.colorSpace = this.THREE.SRGBColorSpace;
+			if (!this.backgroundMesh) {
+				const radius = this.threeGlobeObj.getGlobeRadius() * BACKGROUND_SPHERE_RADIUS_MULTIPLIER;
+				const geometry = new this.THREE.SphereGeometry(radius, BACKGROUND_SPHERE_SEGMENTS, BACKGROUND_SPHERE_SEGMENTS);
+				const material = new this.THREE.MeshBasicMaterial({ map: texture, side: this.THREE.BackSide });
+				this.backgroundMesh = new this.THREE.Mesh(geometry, material);
+				this.threeGlobeObj.add(this.backgroundMesh);
+			} else {
+				if (this.backgroundMesh.material.map) {
+					this.backgroundMesh.material.map.dispose();
+				}
+				this.backgroundMesh.material.map = texture;
+			}
+			this.backgroundMesh.userData.url = url;
+			this.backgroundMesh.visible = true;
+		});
 	}
 
 	// Live-update entry points for the day/night and clouds layers.
@@ -651,6 +732,10 @@ class Earth3DRenderer {
 				this.scene.remove(this.threeGlobeObj);
 			}
 			this.threeGlobeObj = null;
+			// A child of threeGlobeObj (see loadBackgroundTexture()) - already
+			// disposed by disposeObject3D() above, just drop the now-stale
+			// reference so applyBackground() rebuilds a fresh mesh next init().
+			this.backgroundMesh = null;
 		}
 		if (this.controls) {
 			this.controls.dispose();

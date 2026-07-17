@@ -31,6 +31,12 @@ Module.register("MMM-Earth3D", {
 			bumpImageUrl: null
 		},
 
+		background: {
+			enabled: false, // off by default - opt in once you've picked a look you like
+			preset: "night-sky", // string id from presets/backgrounds.js, or "custom" with imageUrl below
+			imageUrl: null
+		},
+
 		camera: {
 			preset: "custom", // string id from presets/camera.js, or "custom" for the fields below
 			zoom: 50, // 0-100, 0 = far (zoomed out), 100 = close (zoomed in)
@@ -98,6 +104,7 @@ Module.register("MMM-Earth3D", {
 		window.EARTH3D_PRESETS = window.EARTH3D_PRESETS || {};
 		window.EARTH3D_PRESETS.atmosphere = this.validatePresets(window.EARTH3D_PRESETS.atmosphere, "atmosphere", ["color", "altitude"]);
 		window.EARTH3D_PRESETS.texture = this.validatePresets(window.EARTH3D_PRESETS.texture, "texture", ["images"]);
+		window.EARTH3D_PRESETS.background = this.validatePresets(window.EARTH3D_PRESETS.background, "background", ["imageUrl"]);
 		window.EARTH3D_PRESETS.camera = this.validatePresets(window.EARTH3D_PRESETS.camera, "camera", ["zoom", "rotate", "position"]);
 		// User-created themes (presets/themes-user.js, gitignored - see
 		// node_helper.js) are merged in after the shipped defaults; from here
@@ -147,6 +154,7 @@ Module.register("MMM-Earth3D", {
 			this.file("public/vendor/suncalc.js"),
 			this.file("presets/atmosphere.js"),
 			this.file("presets/earthTextures.js"),
+			this.file("presets/backgrounds.js"),
 			this.file("presets/camera.js"),
 			this.file("presets/themes.js"),
 			this.file("presets/themes-user.js"),
@@ -218,6 +226,7 @@ Module.register("MMM-Earth3D", {
 			quality: this.config.quality !== this.defaults.quality ? this.config.quality : undefined,
 			atmosphere: this.captureOverride("atmosphere"),
 			texture: this.captureOverride("texture"),
+			background: this.captureOverride("background"),
 			camera: this.captureOverride("camera", ["rotate", "position"]),
 			dayNight: this.captureOverride("dayNight"),
 			clouds: this.captureOverride("clouds")
@@ -255,6 +264,7 @@ Module.register("MMM-Earth3D", {
 
 		this.resolveAssetConfig("atmosphere", theme, []);
 		this.resolveAssetConfig("texture", theme, []);
+		this.resolveAssetConfig("background", theme, []);
 		this.resolveAssetConfig("camera", theme, ["rotate", "position"]);
 		this.resolveDirectConfig("dayNight", theme, []);
 		this.resolveDirectConfig("clouds", theme, []);
@@ -526,7 +536,7 @@ Module.register("MMM-Earth3D", {
 			if (partial.quality === undefined) {
 				this.userOverrides.quality = undefined;
 			}
-			["atmosphere", "texture", "camera", "dayNight", "clouds"].forEach((key) => {
+			["atmosphere", "texture", "background", "camera", "dayNight", "clouds"].forEach((key) => {
 				if (partial[key] === undefined) {
 					this.userOverrides[key] = null;
 				}
@@ -545,17 +555,21 @@ Module.register("MMM-Earth3D", {
 
 		const atmosphereChanged = Boolean(partial.atmosphere);
 		const textureChanged = Boolean(partial.texture);
+		const backgroundChanged = Boolean(partial.background);
 		const cameraChanged = Boolean(partial.camera);
 		const dayNightChanged = Boolean(partial.dayNight);
 		const cloudsChanged = Boolean(partial.clouds);
 
-		this.debugLog("applyLiveConfig flags", { themeChanged, atmosphereChanged, textureChanged, cameraChanged, dayNightChanged, cloudsChanged, rotationSpeedChanged: partial.rotationSpeed !== undefined, qualityChanged: partial.quality !== undefined });
+		this.debugLog("applyLiveConfig flags", { themeChanged, atmosphereChanged, textureChanged, backgroundChanged, cameraChanged, dayNightChanged, cloudsChanged, rotationSpeedChanged: partial.rotationSpeed !== undefined, qualityChanged: partial.quality !== undefined });
 
 		if (atmosphereChanged) {
 			this.mergeOverride("atmosphere", partial.atmosphere, []);
 		}
 		if (textureChanged) {
 			this.mergeOverride("texture", partial.texture, []);
+		}
+		if (backgroundChanged) {
+			this.mergeOverride("background", partial.background, []);
 		}
 		if (cameraChanged) {
 			this.mergeOverride("camera", partial.camera, ["rotate", "position"]);
@@ -569,7 +583,7 @@ Module.register("MMM-Earth3D", {
 
 		const previousQuality = this.config.quality;
 
-		if (themeChanged || atmosphereChanged || textureChanged || cameraChanged
+		if (themeChanged || atmosphereChanged || textureChanged || backgroundChanged || cameraChanged
 			|| dayNightChanged || cloudsChanged
 			|| partial.rotationSpeed !== undefined || partial.quality !== undefined) {
 			this.resolveConfig();
@@ -584,6 +598,9 @@ Module.register("MMM-Earth3D", {
 		}
 		if (themeChanged || textureChanged) {
 			this.renderer.applyTexture();
+		}
+		if (themeChanged || backgroundChanged) {
+			this.renderer.applyBackground();
 		}
 		if (themeChanged || cameraChanged) {
 			this.renderer.applyZoom();
