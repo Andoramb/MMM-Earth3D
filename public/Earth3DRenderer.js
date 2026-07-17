@@ -504,7 +504,10 @@ class Earth3DRenderer {
 			if (!this.backgroundMesh) {
 				const radius = this.threeGlobeObj.getGlobeRadius() * BACKGROUND_SPHERE_RADIUS_MULTIPLIER;
 				const geometry = new this.THREE.SphereGeometry(radius, BACKGROUND_SPHERE_SEGMENTS, BACKGROUND_SPHERE_SEGMENTS);
-				const material = new this.THREE.MeshBasicMaterial({ map: texture, side: this.THREE.BackSide });
+				// Mirrored (not BackSide) so the inside view isn't texture-flipped -
+				// BackSide alone renders correctly but reverses apparent rotation vs the globe.
+				geometry.scale(-1, 1, 1);
+				const material = new this.THREE.MeshBasicMaterial({ map: texture });
 				this.backgroundMesh = new this.THREE.Mesh(geometry, material);
 				this.threeGlobeObj.add(this.backgroundMesh);
 			} else {
