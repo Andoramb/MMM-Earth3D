@@ -98,6 +98,12 @@ const AMBIENT_LIGHT_INTENSITY = Math.PI;
 const KEY_LIGHT_COLOR = 0xffffff;
 const KEY_LIGHT_INTENSITY = 0.6 * Math.PI;
 
+// texture.preset "tile-engine" (presets/earthTextures.js): NASA GIBS' static Blue Marble tile pyramid, not OSM - no key, and GIBS is built for exactly this kind of distributed client polling (unlike OSM's tile server, which asks embedded apps not to hotlink it).
+const GIBS_TILE_MAX_LEVEL = 8; // GoogleMapsCompatible_Level8 - three-globe reuses these tiles past this depth instead of requesting ones that don't exist
+function gibsBlueMarbleTileUrl(x, y, level) {
+	return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_NextGeneration/default/GoogleMapsCompatible_Level8/${level}/${y}/${x}.jpeg`;
+}
+
 // Loads three-globe + OrbitControls + CSS2DRenderer, all real ES modules
 // statically importing this project's own vendored Three.js by relative path
 // (see public/vendor/three-globe.mjs's generating script and
@@ -347,7 +353,12 @@ class Earth3DRenderer {
 				(path) => this.assetPath(path)
 			);
 		}
-		this.compositor.start(textures.image);
+		// Tile mode owns the color map directly (globeTileEngineUrl) - the day/night compositor and globeImageUrl are mutually exclusive on the same three-globe material, so it's left unstarted (clouds/day-night stay off for this preset).
+		if (textures.tileEngine) {
+			this.applyTileEngine();
+		} else {
+			this.compositor.start(textures.image);
+		}
 
 		this.startRenderLoop();
 	}
@@ -510,6 +521,10 @@ class Earth3DRenderer {
 	applyTexture() {
 		const textures = this.resolveTextureUrls();
 		this.debugLog("applyTexture", textures);
+		if (textures.tileEngine) {
+			this.applyTileEngine();
+			return;
+		}
 		if (this.threeGlobeObj && textures.bump) {
 			this.threeGlobeObj.bumpImageUrl(textures.bump);
 		}
@@ -518,13 +533,16 @@ class Earth3DRenderer {
 		}
 	}
 
-	// Toggles/swaps the background (see BACKGROUND_SPHERE_RADIUS_MULTIPLIER
-	// above for why the image sphere is attached to threeGlobeObj rather than
-	// the scene directly - the "star-particles" preset's StarfieldLayer is
-	// attached the same way, see ensureStarfieldLayer()). Disabling just hides
-	// whichever is currently built rather than disposing it, so re-enabling
-	// the same preset is instant - no re-fetch/re-decode/re-randomize. Exactly
-	// one of the image mesh or the particle layer is ever visible.
+	// Live, zoomable NASA GIBS satellite tiles instead of the fixed-resolution day/night composite - see GIBS_TILE_MAX_LEVEL above for why level is capped.
+	applyTileEngine() {
+		if (!this.threeGlobeObj) {
+			return;
+		}
+		this.debugLog("applyTileEngine");
+		this.threeGlobeObj.globeTileEngineUrl(gibsBlueMarbleTileUrl).globeTileEngineMaxLevel(GIBS_TILE_MAX_LEVEL);
+	}
+
+	// Toggles/swaps the background sphere or starfield layer; disabling just hides the current one rather than disposing it, so re-enabling is instant.
 	applyBackground() {
 		const selection = this.resolveBackgroundSelection();
 		this.debugLog("applyBackground", selection);
@@ -657,11 +675,11 @@ class Earth3DRenderer {
 		}
 	}
 
-	// city.lat/lng are already resolved (name -> coordinates, via
-	// presets/cities.js) by MMM-Earth3D.js's resolveCity() before this is
-	// called - this class never looks the name up itself. A single
-	// htmlElementsData entry rather than three-globe's own pointsData/
-	// labelsData layers so the whole marker (dot + label) is one real DOM
+	// city.cities entries already have lat/lng resolved (name -> coordinates,
+	// via presets/cities.js) by MMM-Earth3D.js's resolveCity() before this is
+	// called - this class never looks names up itself. htmlElementsData
+	// (one entry per city) rather than three-globe's own pointsData/
+	// labelsData layers so each marker (dot + label) is one real DOM
 	// element, styleable from css/MMM-Earth3D.css (.earth3d-city-marker/
 	// -dot/-label) instead of baked-in 3D text geometry.
 	applyCity() {
@@ -670,16 +688,17 @@ class Earth3DRenderer {
 		}
 		const city = this.config.city;
 		this.debugLog("applyCity", city);
-		if (!city || city.lat === null || city.lng === null) {
+		const cities = (city && city.cities) ? city.cities.filter((c) => c.lat !== null && c.lng !== null) : [];
+		if (!cities.length) {
 			this.threeGlobeObj.htmlElementsData([]);
 			return;
 		}
 		this.threeGlobeObj
-			.htmlElementsData([city])
+			.htmlElementsData(cities)
 			.htmlLat("lat")
 			.htmlLng("lng")
 			.htmlAltitude(0.01)
-			.htmlElement(() => this.createCityMarkerElement(city));
+			.htmlElement((c) => this.createCityMarkerElement(c));
 	}
 
 	createCityMarkerElement(city) {
@@ -772,6 +791,9 @@ class Earth3DRenderer {
 		const preset = (window.EARTH3D_PRESETS.texture || []).find((entry) => entry.id === texture.preset);
 		if (!preset) {
 			return { image: null, bump: null };
+		}
+		if (preset.texture.tileEngine) {
+			return { image: null, bump: null, tileEngine: true };
 		}
 
 		const quality = QUALITY_PRESETS[this.config.quality] || QUALITY_PRESETS.high;
