@@ -33,7 +33,7 @@ with these top-level fields:
 | `background` | object | `{ enabled, preset, imageUrl }` — flat image sphere (`night-sky`) or real 3D star particles (`star-particles`), both spinning together with the globe |
 | `camera` | object | `{ preset, zoom, rotate: {x,y,z}, position: {x,y,z} }` |
 | `dayNight` | object | `{ mode: "disabled"\|"realtime"\|"custom", rotate }` |
-| `clouds` | object | `{ enabled, source: "static"\|"realtime", opacity }` |
+| `clouds` | object | `{ enabled, source: "static"\|"dynamic"\|"realtime", opacity }` |
 | `flights` | object | `{ enabled, flightNumber, track, pollInterval }` — real-time flight tracking, see below. **Not** part of `theme` (switching theme never changes or clears it, and it's never included in `theme` save/duplicate) — it's session/operational state, not a visual look. |
 | `city` | object | `{ name, center }` — labeled marker (dot + text) per city; `name` is a single name or a `;`-separated list for multiple markers (e.g. `"Tokyo;Gothenburg"`); `center: true` is a one-shot action, not persisted state (see below) |
 
@@ -283,7 +283,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 | `atmosphere.opacity` | `0` (hidden) - `1` (shown); on/off threshold, not true alpha |
 | `dayNight.mode` | `disabled` \| `realtime` \| `custom` |
 | `dayNight.rotate` | `0`-`360` degrees, only used when `mode: "custom"` |
-| `clouds.source` | `static` (no network) \| `realtime` (NASA GIBS, refreshed every 24h) |
+| `clouds.source` | `static` (no network) \| `dynamic` (no network; same texture, animated via a layered/noise-warped shader) \| `realtime` (NASA GIBS, refreshed every 24h) |
 | `clouds.opacity` | `0`-`1` |
 | `background.enabled` | `true` \| `false` |
 | `background.preset` | `night-sky` \| `star-particles` \| `custom` (with `background.imageUrl`) |
@@ -301,7 +301,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 
 **"Switch to night mode" / "show day and night":** `{"dayNight": {"mode": "realtime"}}`.
 
-**"Turn on clouds":** `{"clouds": {"enabled": true}}` (add `"source": "realtime"` for live satellite clouds).
+**"Turn on clouds":** `{"clouds": {"enabled": true}}` (add `"source": "dynamic"` for an animated, no-network cloud drift, or `"source": "realtime"` for live satellite clouds).
 
 **"Turn on/off the starry background":** `{"background": {"enabled": true}}` / `{"background": {"enabled": false}}`.
 
