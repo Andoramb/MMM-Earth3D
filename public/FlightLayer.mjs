@@ -53,7 +53,7 @@ export class FlightLayer {
 		this.trail = [];
 		this.trackedFlightNumber = null;
 
-		// Counteracts camera perspective so the marker reads as a constant on-screen size regardless of zoom (see Earth3DRenderer.tick()'s setDistanceScale()).
+		// Counteracts camera perspective so the marker reads as a constant on-screen size regardless of zoom (see Planet3DRenderer.tick()'s setDistanceScale()).
 		this.distanceScale = 1;
 	}
 
@@ -61,7 +61,7 @@ export class FlightLayer {
 		if (!this.debug) {
 			return;
 		}
-		Log.info.apply(Log, ["[MMM-Earth3D:FlightLayer]"].concat(Array.prototype.slice.call(arguments)));
+		Log.info.apply(Log, ["[MMM-Planet3D:FlightLayer]"].concat(Array.prototype.slice.call(arguments)));
 	}
 
 	buildPlaneMesh() {
@@ -123,7 +123,7 @@ export class FlightLayer {
 		}
 	}
 
-	// data: { found, lat, lng, heading, ... } from EARTH3D_FLIGHT_POSITION - found:false hides the marker and resets interpolation.
+	// data: { found, lat, lng, heading, ... } from PLANET3D_FLIGHT_POSITION - found:false hides the marker and resets interpolation.
 	pushSample(data) {
 		if (!data || !data.found || data.lat == null || data.lng == null) {
 			this.setVisible(false);
@@ -164,7 +164,7 @@ export class FlightLayer {
 		}
 	}
 
-	// Currently-displayed (interpolated) lat/lng, or null - consumed by Earth3DRenderer.tick()'s flights.track camera-centering blend.
+	// Currently-displayed (interpolated) lat/lng, or null - consumed by Planet3DRenderer.tick()'s flights.track camera-centering blend.
 	getCurrentPosition() {
 		if (!this.hasSample || this.stale) {
 			return null;

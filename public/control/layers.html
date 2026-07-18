@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MMM-Earth3D Control - Layers</title>
+<title>MMM-Planet3D Control - Layers</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -42,6 +42,18 @@
 			<span class="value" id="atmosphereOpacity-val">100</span>
 			<button type="button" class="reset-btn" data-reset-target="atmosphereOpacity" title="Reset to theme default">↺</button>
 		</label>
+		<label>
+			<span class="name">Strength</span>
+			<input type="range" id="atmosphereStrength" min="0" max="300" value="100">
+			<span class="value" id="atmosphereStrength-val">100</span>
+			<button type="button" class="reset-btn" data-reset-target="atmosphereStrength" title="Reset to theme default">↺</button>
+		</label>
+		<label>
+			<span class="name">Fade In</span>
+			<input type="range" id="atmosphereFadeIn" min="0" max="30" value="8">
+			<span class="value" id="atmosphereFadeIn-val">8</span>
+			<button type="button" class="reset-btn" data-reset-target="atmosphereFadeIn" title="Reset to theme default">↺</button>
+		</label>
 	</fieldset>
 
 	<h2>Day / Night</h2>
@@ -58,6 +70,7 @@
 			<span class="name">Angle</span>
 			<input type="range" id="dayNightRotate" min="0" max="360" value="0">
 			<span class="value" id="dayNightRotate-val">0</span>
+			<button type="button" class="reset-btn" data-reset-target="dayNightRotate" title="Reset to theme default">↺</button>
 		</label>
 	</fieldset>
 
@@ -67,8 +80,8 @@
 		<div class="row">
 			<select id="cloudsSource">
 				<option value="disabled">Disabled</option>
-				<option value="static">Standard (Blue Marble)</option>
-				<option value="dynamic">Dynamic (animated)</option>
+				<option value="static">Single (Blue Marble)</option>
+				<option value="dynamic">Dual (animated)</option>
 				<option value="realtime">Realtime (NASA GIBS)</option>
 			</select>
 			<p class="intro sub-row" id="cloudsSourceHint" style="margin:6px 0 0;">
@@ -76,7 +89,7 @@
 				its underlying satellite composite actually updates.
 			</p>
 			<p class="intro sub-row" id="cloudsDynamicHint" style="margin:6px 0 0;">
-				Dynamic adds a second drifting layer and a subtle noise warp on top
+				Dual adds a second drifting layer and a subtle noise warp on top
 				of the same offline Blue Marble texture - no network needed.
 			</p>
 		</div>
@@ -84,7 +97,64 @@
 			<span class="name">Opacity</span>
 			<input type="range" id="cloudsOpacity" min="0" max="100" value="80">
 			<span class="value" id="cloudsOpacity-val">80</span>
+			<button type="button" class="reset-btn" data-reset-target="cloudsOpacity" title="Reset to theme default">↺</button>
 		</label>
+		<label class="sub-row" id="cloudsContrastRow">
+			<span class="name">Contrast</span>
+			<input type="range" id="cloudsContrast" min="0" max="200" value="100">
+			<span class="value" id="cloudsContrast-val">100</span>
+			<button type="button" class="reset-btn" data-reset-target="cloudsContrast" title="Reset to theme default">↺</button>
+		</label>
+		<label class="sub-row" id="cloudsSpeedRow">
+			<span class="name">Speed</span>
+			<input type="range" id="cloudsSpeed" min="0" max="300" value="100">
+			<span class="value" id="cloudsSpeed-val">100</span>
+			<button type="button" class="reset-btn" data-reset-target="cloudsSpeed" title="Reset to theme default">↺</button>
+		</label>
+		<label class="sub-row" id="cloudsSpeedVariationRow">
+			<span class="name">Speed variation</span>
+			<input type="range" id="cloudsSpeedVariation" min="0" max="200" value="100">
+			<span class="value" id="cloudsSpeedVariation-val">100</span>
+			<button type="button" class="reset-btn" data-reset-target="cloudsSpeedVariation" title="Reset to theme default">↺</button>
+		</label>
+		<label class="sub-row" id="cloudsNightDarkenRow">
+			<span class="name">Night darken</span>
+			<input type="range" id="cloudsNightDarken" min="0" max="100" value="85">
+			<span class="value" id="cloudsNightDarken-val">85</span>
+			<button type="button" class="reset-btn" data-reset-target="cloudsNightDarken" title="Reset to theme default">↺</button>
+		</label>
+		<label class="sub-row" id="cloudsAlphaCutoffRow">
+			<span class="name">Alpha cutoff</span>
+			<input type="range" id="cloudsAlphaCutoff" min="0" max="100" value="0">
+			<span class="value" id="cloudsAlphaCutoff-val">0</span>
+			<button type="button" class="reset-btn" data-reset-target="cloudsAlphaCutoff" title="Reset to theme default">↺</button>
+		</label>
+		<div class="sub-row" id="cloudsSecondaryControls">
+			<label>
+				<span class="name">Secondary opacity</span>
+				<input type="range" id="cloudsSecondaryOpacity" min="0" max="200" value="100">
+				<span class="value" id="cloudsSecondaryOpacity-val">100</span>
+				<button type="button" class="reset-btn" data-reset-target="cloudsSecondaryOpacity" title="Reset to theme default">↺</button>
+			</label>
+			<label>
+				<span class="name">Secondary contrast</span>
+				<input type="range" id="cloudsSecondaryContrast" min="0" max="200" value="100">
+				<span class="value" id="cloudsSecondaryContrast-val">100</span>
+				<button type="button" class="reset-btn" data-reset-target="cloudsSecondaryContrast" title="Reset to theme default">↺</button>
+			</label>
+			<label>
+				<span class="name">Secondary speed</span>
+				<input type="range" id="cloudsSecondarySpeed" min="0" max="300" value="100">
+				<span class="value" id="cloudsSecondarySpeed-val">100</span>
+				<button type="button" class="reset-btn" data-reset-target="cloudsSecondarySpeed" title="Reset to theme default">↺</button>
+			</label>
+			<label>
+				<span class="name">Secondary speed variation</span>
+				<input type="range" id="cloudsSecondarySpeedVariation" min="0" max="200" value="100">
+				<span class="value" id="cloudsSecondarySpeedVariation-val">100</span>
+				<button type="button" class="reset-btn" data-reset-target="cloudsSecondarySpeedVariation" title="Reset to theme default">↺</button>
+			</label>
+		</div>
 	</fieldset>
 
 	<!-- Flight tracking UI disabled, not removed - uncomment to bring it back (core.js only loads panels/flights.js when this markup is present). -->
@@ -124,13 +194,12 @@
 </main>
 
 <!-- Absolute paths - see home.html's comment above these tags for why. -->
-<script src="/modules/MMM-Earth3D/presets/atmosphere.js"></script>
-<script src="/modules/MMM-Earth3D/presets/earthTextures.js"></script>
-<script src="/modules/MMM-Earth3D/presets/backgrounds.js"></script>
-<script src="/modules/MMM-Earth3D/presets/camera.js"></script>
-<script src="/modules/MMM-Earth3D/presets/cities.js"></script>
-<script src="/modules/MMM-Earth3D/presets/themes.js"></script>
-<script src="/modules/MMM-Earth3D/presets/themes-user.js"></script>
+<script src="/modules/MMM-Planet3D/presets/atmosphere.js"></script>
+<script src="/modules/MMM-Planet3D/presets/earthTextures.js"></script>
+<script src="/modules/MMM-Planet3D/presets/backgrounds.js"></script>
+<script src="/modules/MMM-Planet3D/presets/camera.js"></script>
+<script src="/modules/MMM-Planet3D/presets/themes.js"></script>
+<script src="/modules/MMM-Planet3D/presets/themes-user.js"></script>
 <script type="module" src="core.js"></script>
 
 </body>

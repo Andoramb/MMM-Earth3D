@@ -1,8 +1,8 @@
 /* global window */
 
 // Earth texture presets - select via config.texture.preset; `images` maps quality tier ("2k"/"4k"/"8k") to files under public/.
-window.EARTH3D_PRESETS = window.EARTH3D_PRESETS || {};
-window.EARTH3D_PRESETS.texture = [
+window.PLANET3D_PRESETS = window.PLANET3D_PRESETS || {};
+window.PLANET3D_PRESETS.texture = [
 	{
 		id: "blue-marble",
 		name: "NASA Blue Marble",
@@ -18,7 +18,7 @@ window.EARTH3D_PRESETS.texture = [
 	{
 		id: "tile-engine",
 		name: "Live Tiles (NASA GIBS)",
-		// tileEngine: true routes this preset through Earth3DRenderer's applyTileEngine() instead of images/bumpImage - see gibsBlueMarbleTileUrl() there.
+		// tileEngine: true routes this preset through Planet3DRenderer's applyTileEngine() instead of images/bumpImage - see gibsBlueMarbleTileUrl() there.
 		texture: {
 			images: {},
 			tileEngine: true

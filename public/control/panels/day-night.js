@@ -17,6 +17,11 @@ export function init (ctx) {
 	});
 	syncVisibility();
 	ctx.bindSlider("dayNightRotate", (value) => ctx.send({ dayNight: { rotate: value } }));
+	document.querySelector('[data-reset-target="dayNightRotate"]').addEventListener("click", () => {
+		const value = ctx.resolveThemeValue("dayNight", null, "rotate");
+		ctx.setSliderValue("dayNightRotate", value);
+		ctx.send({ dayNight: { rotate: null } });
+	});
 }
 
 export function applyConfig (config, ctx) {

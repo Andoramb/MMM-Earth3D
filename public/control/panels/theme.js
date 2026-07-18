@@ -19,7 +19,7 @@ export function init (ctx) {
 	document.getElementById("themeDuplicateBtn").addEventListener("click", () => {
 		const sourceId = themeEl.value;
 		if (sourceId === "custom") {
-			ctx.setStatus("Pick a theme first - \"Custom\" isn't a stored theme to duplicate", true);
+			ctx.postThemeAction({ action: "duplicate", sourceId: "custom", config: ctx.getConfig() });
 			return;
 		}
 		const source = ctx.themes.find((entry) => entry.id === sourceId);
@@ -33,7 +33,7 @@ export function init (ctx) {
 	document.getElementById("themeSaveBtn").addEventListener("click", () => {
 		const themeId = themeEl.value;
 		if (themeId === "custom") {
-			ctx.setStatus("Pick a theme first - \"Custom\" isn't a stored theme to save into", true);
+			ctx.postThemeAction({ action: "duplicate", sourceId: "custom", config: ctx.getConfig() });
 			return;
 		}
 		if (ctx.defaultThemeIds.has(themeId)) {

@@ -1,8 +1,8 @@
 {
-	"name": "MMM-Earth3D",
+	"name": "MMM-Planet3D",
 	"version": "0.2.0",
-	"description": "A MagicMirror module that displays a rotating 3D Earth (three-globe/Three.js), with room to grow into clouds, day/night, markers, and live data overlays.",
-	"main": "MMM-Earth3D.js",
+	"description": "A MagicMirror module that displays a rotating 3D planet (three-globe/Three.js), with room to grow into clouds, day/night, markers, and live data overlays.",
+	"main": "MMM-Planet3D.js",
 	"scripts": {
 		"test": "echo \"No tests specified\" && exit 0"
 	},
@@ -11,6 +11,7 @@
 		"MagicMirror",
 		"globe",
 		"earth",
+		"planet",
 		"3d",
 		"webgl"
 	],

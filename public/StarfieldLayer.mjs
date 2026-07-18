@@ -4,7 +4,7 @@ import * as THREE from "./vendor/three.module.min.js";
 // StarfieldLayer: a "star particles" alternative to the flat night-sky background image - four independent
 // Stars point-clouds (see tools/vendor-stars/) nested at increasing radius/decreasing size, mimicking how real
 // stars read as a mix of a few bold near ones and many faint distant ones. Attached to the same rotating group
-// as the image background (see Earth3DRenderer.js's applyBackground()), so it's swept up by the same
+// as the image background (see Planet3DRenderer.mjs's applyBackground()), so it's swept up by the same
 // disposeObject3D() traversal on rebuild - no separate destroy() needed.
 
 // --- Tweak layer count/size/density here ---------------------------------------------------------------------
@@ -21,7 +21,7 @@ const BASE_TOTAL_COUNT = LAYERS.reduce((sum, layer) => sum + layer.count, 0);
 // stars.mjs's gl_PointSize falloff (30.0 / -mvPosition.z) is calibrated for points ~100 units from the camera; our layers sit globeRadius*layer.radius units out, so factor must scale by that same ratio or points shrink to sub-pixel.
 const POINT_SIZE_CALIBRATION_DISTANCE = 100;
 
-// Matches MMM-Earth3D.js's defaults.background.starfield - keep in sync if those change.
+// Matches MMM-Planet3D.js's defaults.background.starfield - keep in sync if those change.
 const DEFAULT_CONFIG = {
 	count: BASE_TOTAL_COUNT,
 	size: 1,
@@ -59,7 +59,7 @@ export class StarfieldLayer {
 		if (!this.debug) {
 			return;
 		}
-		Log.info.apply(Log, ["[MMM-Earth3D:StarfieldLayer]"].concat(Array.prototype.slice.call(arguments)));
+		Log.info.apply(Log, ["[MMM-Planet3D:StarfieldLayer]"].concat(Array.prototype.slice.call(arguments)));
 	}
 
 	buildLayer(layer) {

@@ -28,7 +28,7 @@ export function init (ctx) {
 	starfieldEffectVariationRow = document.getElementById("starfieldEffectVariationRow");
 	starfieldEffectSpeedRow = document.getElementById("starfieldEffectSpeedRow");
 
-	const presets = (window.EARTH3D_PRESETS && window.EARTH3D_PRESETS.background) || [];
+	const presets = (window.PLANET3D_PRESETS && window.PLANET3D_PRESETS.background) || [];
 	for (const preset of presets) {
 		const option = document.createElement("option");
 		option.value = preset.id;
@@ -64,6 +64,21 @@ export function init (ctx) {
 	});
 	ctx.bindSlider("starfieldEffectVariation", (value) => sendStarfield({ effectVariation: value / 100 }));
 	ctx.bindSlider("starfieldEffectSpeed", (value) => sendStarfield({ effectSpeed: value / 100 }));
+
+	// starfieldCount is a raw integer (matches its slider 1:1, unlike the other starfield sliders which store a 0-1 float scaled by *100 for the slider's int range).
+	function bindStarfieldReset (id, field, scale) {
+		document.querySelector('[data-reset-target="' + id + '"]').addEventListener("click", () => {
+			const value = ctx.resolveThemeValue("background", backgroundSelectEl, field, "starfield");
+			ctx.setSliderValue(id, Math.round(value * (scale || 100)));
+			sendStarfield({ [field]: null });
+		});
+	}
+	bindStarfieldReset("starfieldCount", "count", 1);
+	bindStarfieldReset("starfieldSize", "size");
+	bindStarfieldReset("starfieldSizeVariation", "sizeVariation");
+	bindStarfieldReset("starfieldColorVariation", "colorVariation");
+	bindStarfieldReset("starfieldEffectVariation", "effectVariation");
+	bindStarfieldReset("starfieldEffectSpeed", "effectSpeed");
 
 	syncHint();
 	syncFadingRows();

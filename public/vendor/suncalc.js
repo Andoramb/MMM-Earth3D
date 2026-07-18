@@ -1,5 +1,5 @@
 // MODIFIED from the upstream vendored build: the global this UMD wrapper
-// exposes was renamed from `SunCalc` to `MMMEarth3DSunCalc` (only this
+// exposes was renamed from `SunCalc` to `MMMPlanet3DSunCalc` (only this
 // line) - deliberately NOT reusing MagicMirror core's own shared SunCalc via
 // getScripts() returning bare "suncalc.js" (a documented, normally-good
 // pattern - see MM's own module-development docs, "moment.js" example).
@@ -19,7 +19,7 @@
 // which one loads last. Vendoring our own known-good build with a unique
 // global name sidesteps both problems at once.
 (function(global, factory) {
-	typeof exports === "object" && typeof module !== "undefined" ? factory(exports) : typeof define === "function" && define.amd ? define(["exports"], factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, factory(global.MMMEarth3DSunCalc = {}));
+	typeof exports === "object" && typeof module !== "undefined" ? factory(exports) : typeof define === "function" && define.amd ? define(["exports"], factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, factory(global.MMMPlanet3DSunCalc = {}));
 })(this, function(exports) {
 	Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 	//#region index.js

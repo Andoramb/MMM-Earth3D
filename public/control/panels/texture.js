@@ -10,7 +10,7 @@ function syncVisibility () {
 export function init (ctx) {
 	texturePresetEl = document.getElementById("texturePreset");
 	qualityRowEl = document.getElementById("qualityRow");
-	const texturePresets = (window.EARTH3D_PRESETS && window.EARTH3D_PRESETS.texture) || [];
+	const texturePresets = (window.PLANET3D_PRESETS && window.PLANET3D_PRESETS.texture) || [];
 	ctx.populatePresetSelect(texturePresetEl, texturePresets, false);
 	texturePresetEl.addEventListener("change", () => {
 		syncVisibility();

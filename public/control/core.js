@@ -1,10 +1,18 @@
 // Shared core for the control panel - scans each page for [data-panel="<name>"], dynamically imports panels/<name>.js, and mounts it (exports: init(ctx), applyConfig(config, ctx)).
 
-// Mirrors MMM-Earth3D.js's `defaults` - keep in sync if those change.
+// Mirrors MMM-Planet3D.js's `defaults` - keep in sync if those change.
 export const MODULE_DEFAULTS = {
 	rotationSpeed: 20,
-	atmosphere: { color: "#4aa8ff", altitude: 0.15, opacity: 1 },
-	camera: { zoom: 50, rotate: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 0 } }
+	atmosphere: { color: "#4aa8ff", altitude: 0.15, opacity: 1, strength: 1, fadeIn: 8 },
+	camera: { zoom: 50, rotate: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 0 } },
+	background: {
+		starfield: { count: 6600, size: 1, sizeVariation: 0.5, color: "#ffffff", colorVariation: 0.4, effectVariation: 0, effectSpeed: 1 }
+	},
+	dayNight: { mode: "disabled", rotate: 0 },
+	clouds: {
+		opacity: 0.8, contrast: 1, speed: 1, speedVariation: 1,
+		secondary: { opacity: 1, contrast: 1, speed: 1, speedVariation: 1 }
+	}
 };
 
 const statusEl = document.getElementById("status");
@@ -23,7 +31,7 @@ function send (payload) {
 	clearTimeout(debounceTimer);
 	return new Promise((resolve, reject) => {
 		debounceTimer = setTimeout(() => {
-			fetch("/MMM-Earth3D/set-config", {
+			fetch("/MMM-Planet3D/set-config", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(payload)
@@ -44,7 +52,7 @@ function send (payload) {
 }
 
 function postThemeAction (body) {
-	return fetch("/MMM-Earth3D/theme", {
+	return fetch("/MMM-Planet3D/theme", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(body)
@@ -62,13 +70,13 @@ function postThemeAction (body) {
 		.catch((err) => setStatus(err.message, true));
 }
 
-// --- Resolved config readback: asks node_helper (GET /MMM-Earth3D/config), which relays to the real module instance for the actual resolution ---
+// --- Resolved config readback: asks node_helper (GET /MMM-Planet3D/config), which relays to the real module instance for the actual resolution ---
 
 let currentConfig = null;
 let currentOverrides = {};
 
 function fetchResolvedConfig () {
-	return fetch("/MMM-Earth3D/config")
+	return fetch("/MMM-Planet3D/config")
 		.then((res) => {
 			if (!res.ok) {
 				return res.json().then((body) => {
@@ -135,39 +143,52 @@ function populatePresetSelect (selectEl, presets, includeCustom, firstId) {
 }
 
 function findPreset (assetType, id) {
-	const list = (window.EARTH3D_PRESETS && window.EARTH3D_PRESETS[assetType]) || [];
+	const list = (window.PLANET3D_PRESETS && window.PLANET3D_PRESETS[assetType]) || [];
 	return list.find((entry) => entry.id === id);
 }
 
 // Built-in and user-created (gitignored presets/themes-user.js) themes as one combined list, for resolveThemeValue() below and reset (↺) buttons.
-const themes = (window.EARTH3D_THEMES || []).concat(window.EARTH3D_USER_THEMES || []);
-const defaultThemeIds = new Set((window.EARTH3D_THEMES || []).map((theme) => theme.id));
+const themes = (window.PLANET3D_THEMES || []).concat(window.PLANET3D_USER_THEMES || []);
+const defaultThemeIds = new Set((window.PLANET3D_THEMES || []).map((theme) => theme.id));
 
-// Resolves a field's value without any manual override: preset -> active theme -> hardcoded default. Feeds the reset (↺) buttons' target values.
+// Reads one field out of an asset payload, tolerating a missing deepKey sub-object instead of throwing.
+function readField (payload, field, deepKey) {
+	if (!payload) {
+		return undefined;
+	}
+	return deepKey ? (payload[deepKey] || {})[field] : payload[field];
+}
+
+// Resolves a field without any manual override: own preset dropdown (null if none, e.g. clouds/dayNight) -> active theme -> module default. Feeds the reset (↺) buttons.
 function resolveThemeValue (assetType, presetSelectEl, field, deepKey) {
-	const presetId = presetSelectEl.value;
+	const presetId = presetSelectEl ? presetSelectEl.value : "custom";
 	if (presetId !== "custom") {
 		const preset = findPreset(assetType, presetId);
-		if (preset) {
-			const payload = preset[assetType];
-			return deepKey ? payload[deepKey][field] : payload[field];
+		const value = readField(preset && preset[assetType], field, deepKey);
+		if (value !== undefined) {
+			return value;
 		}
 	}
 
 	const themeId = currentConfig ? currentConfig.theme : "custom";
 	if (themeId !== "custom") {
 		const theme = themes.find((entry) => entry.id === themeId);
-		if (theme && theme[assetType]) {
-			const preset = findPreset(assetType, theme[assetType]);
-			if (preset) {
-				const payload = preset[assetType];
-				return deepKey ? payload[deepKey][field] : payload[field];
+		const themeValue = theme ? theme[assetType] : undefined;
+		if (typeof themeValue === "string") {
+			const preset = findPreset(assetType, themeValue);
+			const value = readField(preset && preset[assetType], field, deepKey);
+			if (value !== undefined) {
+				return value;
+			}
+		} else {
+			const value = readField(themeValue, field, deepKey);
+			if (value !== undefined) {
+				return value;
 			}
 		}
 	}
 
-	const fallback = MODULE_DEFAULTS[assetType];
-	return deepKey ? fallback[deepKey][field] : fallback[field];
+	return readField(MODULE_DEFAULTS[assetType], field, deepKey);
 }
 
 // --- Panel context: passed to every panel module's init()/applyConfig() ---
@@ -185,6 +206,7 @@ const ctx = {
 	themes,
 	defaultThemeIds,
 	getOverrides: () => currentOverrides,
+	getConfig: () => currentConfig,
 	refetch: fetchResolvedConfig
 };
 

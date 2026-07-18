@@ -1,7 +1,7 @@
 /* global Log */
 import * as THREE from "./vendor/three.module.min.js";
 
-// CloudsLayer: a second sphere above the globe carrying the clouds texture, rotating independently for parallax - real Three.js geometry, loaded via dynamic import() (see Earth3DRenderer.js's ensureCloudsLayer()).
+// CloudsLayer: a second sphere above the globe carrying the clouds texture, rotating independently for parallax - real Three.js geometry, loaded via dynamic import() (see Planet3DRenderer.mjs's ensureCloudsLayer()).
 
 // --- Tweak clouds size and rotation speed here -------------------------
 
@@ -26,7 +26,7 @@ const GLOBE_ALIGNMENT_ROTATION_Y = Math.PI / 2;
 // --- Dynamic mode ("clouds.source": "dynamic") --------------------------
 // Adds a second, fainter high-altitude sphere plus a per-pixel UV scroll/noise-warp on both layers, so the (still static Blue Marble) texture visibly drifts and billows instead of riding along as a rigid decal. Off by default - "static"/"realtime" render exactly as before.
 
-const DYNAMIC_HIGH_ALTITUDE = 0.026; // fraction of globe radius the high layer floats above the surface
+const DYNAMIC_HIGH_ALTITUDE = CLOUDS_ALTITUDE + 0.01; // close to the base layer's radius (a big size difference read as two mismatched blobs rather than parallax - independent rotation/opacity sell the depth instead), still a small fraction of the globe radius but enough separation to read as a distinct second layer
 const DYNAMIC_HIGH_OPACITY_FACTOR = 0.45; // relative to the current clouds opacity
 
 const DYNAMIC_HIGH_ROTATION_SPEED_X_DEG_PER_SEC = 0.45;
@@ -40,6 +40,9 @@ const DYNAMIC_WARP_SCALE = 3.5; // noise frequency across the 0-1 UV range
 const DYNAMIC_WARP_SPEED = 0.025; // how fast the noise field itself evolves
 const DYNAMIC_WARP_STRENGTH = 0.01; // max UV displacement
 const DYNAMIC_WARP_SEED = { base: 0, high: 37 }; // decorrelates the two layers' warp so they don't billow in lockstep
+
+// uTime is requestAnimationFrame's own clock (time since page load, never reset) fed raw into the fragment shader's mediump float math below - on a MagicMirror kiosk left running for days this grows large enough that mediump precision collapses, making every pixel's warped UV round to the same value (the whole sphere samples one texel - reads as a flat grey blob). Wrapping keeps the GPU-side value small regardless of real uptime.
+const UTIME_WRAP_SECONDS = 1000;
 
 const NOISE_GLSL = `
 	float mmmHash21(vec2 p) {
@@ -80,27 +83,52 @@ const DYNAMIC_MAP_FRAGMENT_INJECT = `
 	#include <map_fragment>
 `;
 
-// Night-side darkening is a shader effect on this same mesh (a second near-coincident sphere z-fights) - each fragment's rotation-invariant object-space normal is re-rotated by the mesh's current spin before sampling EarthCompositor's geographic mask, so the mask tracks true geography despite the independent parallax spin.
+// Night-side darkening is a shader effect on this same mesh (a second near-coincident sphere z-fights) - each fragment's rotation-invariant object-space normal is re-rotated by the mesh's current spin, then dot-producted directly against PlanetCompositor's real 3D sun-direction vector, so the terminator tracks true geography despite the independent parallax spin without a second lng/lat-reconstruction implementation that has to agree with the day globe's baked texture pixel-for-pixel. Shared verbatim by both the base and high-altitude materials (each keeps its own uniforms/vCloudObjectNormal instance - only the GLSL source is shared).
 const NIGHT_MASK_VERTEX_INJECT = {
 	common: "#include <common>\nvarying vec3 vCloudObjectNormal;",
 	beginnormal_vertex: "#include <beginnormal_vertex>\nvCloudObjectNormal = objectNormal;"
 };
-const NIGHT_MASK_FRAGMENT_INJECT = {
-	common: `#include <common>
-		uniform mat3 cloudRotation;
-		uniform sampler2D nightMask;
-		uniform float nightMaskEnabled;
-		varying vec3 vCloudObjectNormal;`,
-	map_fragment: `${DYNAMIC_MAP_FRAGMENT_INJECT}
-		if ( nightMaskEnabled > 0.5 ) {
-			vec3 correctedNormal = normalize( cloudRotation * vCloudObjectNormal );
-			float lng = atan( -correctedNormal.z, correctedNormal.x );
-			float lat = asin( clamp( correctedNormal.y, -1.0, 1.0 ) );
-			vec2 maskUv = vec2( lng / ( 2.0 * 3.14159265358979 ) + 0.5, 0.5 - lat / 3.14159265358979 );
-			float nightAmount = texture2D( nightMask, maskUv ).a;
-			diffuseColor.rgb *= ( 1.0 - nightAmount );
-		}`
-};
+// dot(normal, sunDirection) is exactly sin(solar altitude) for unit vectors in the same frame (angle-above-horizon identity), so the twilight band below is expressed directly as a sine threshold instead of needing a texture sample. TWILIGHT_DEG mirrors PlanetCompositor's own constant of the same name (kept separate since the two run in different contexts, JS vs GLSL).
+const TWILIGHT_DEG = 6;
+const TWILIGHT_SIN = Math.sin(TWILIGHT_DEG * Math.PI / 180).toFixed(6);
+const NIGHT_MASK_COMMON_GLSL = `
+	uniform mat3 cloudRotation;
+	uniform vec3 sunDirection;
+	uniform float nightMaskEnabled;
+	uniform float cloudNightDarken;
+	varying vec3 vCloudObjectNormal;`;
+const NIGHT_MASK_APPLY_GLSL = `
+	if ( nightMaskEnabled > 0.5 ) {
+		vec3 correctedNormal = normalize( cloudRotation * vCloudObjectNormal );
+		float sinAltitude = dot( correctedNormal, sunDirection );
+		float nightAmount = ( 1.0 - smoothstep( -${TWILIGHT_SIN}, ${TWILIGHT_SIN}, sinAltitude ) ) * cloudNightDarken;
+		diffuseColor.rgb *= ( 1.0 - nightAmount );
+	}`;
+
+// Contrast multiplier on the sampled cloud color, applied before night-mask darkening - 1 = unchanged, shared GLSL for both materials, each with its own cloudContrast uniform value.
+const CONTRAST_COMMON_GLSL = `uniform float cloudContrast;`;
+const CONTRAST_APPLY_GLSL = `diffuseColor.rgb = clamp( ( diffuseColor.rgb - 0.5 ) * cloudContrast + 0.5, 0.0, 1.0 );`;
+
+// Fades out fragments below a configurable alpha (cloud density) threshold instead of blending them at full strength - 0 (default) leaves every fragment alone, since texture alpha is already clamped to [0,1]. A hard `discard` at the threshold punched a visibly jagged edge into the (fairly low-res) clouds texture, so this ramps alpha down smoothly across a soft band around the cutoff instead - same "punch out the haze" effect, without the crisp cutout look. Applied right after the texture sample, before contrast/night-mask shading.
+const ALPHA_CUTOFF_COMMON_GLSL = `uniform float cloudAlphaCutoff;`;
+// Band half-width scales with the cutoff itself (clamped to a sensible min/max) so low cutoffs still get a visible feather and high cutoffs don't feather the whole texture away.
+const ALPHA_CUTOFF_APPLY_GLSL = `
+	if ( cloudAlphaCutoff > 0.0 ) {
+		float cutoffSoftness = clamp( cloudAlphaCutoff * 0.5, 0.02, 0.25 );
+		diffuseColor.a *= smoothstep( cloudAlphaCutoff - cutoffSoftness, cloudAlphaCutoff + cutoffSoftness, diffuseColor.a );
+	}`;
+
+// Full map_fragment/common replacements shared by both materials: dynamic warp/scroll -> alpha cutoff -> contrast -> night-mask darkening.
+const CLOUD_MAP_FRAGMENT_INJECT = `${DYNAMIC_MAP_FRAGMENT_INJECT}
+	${ALPHA_CUTOFF_APPLY_GLSL}
+	${CONTRAST_APPLY_GLSL}
+	${NIGHT_MASK_APPLY_GLSL}`;
+const CLOUD_FRAGMENT_COMMON_INJECT = `#include <common>
+	${NIGHT_MASK_COMMON_GLSL}
+	${CONTRAST_COMMON_GLSL}
+	${ALPHA_CUTOFF_COMMON_GLSL}
+	${DYNAMIC_UNIFORMS_GLSL}
+	${NOISE_GLSL}`;
 
 export class CloudsLayer {
 	constructor(globeRadius, debug) {
@@ -110,19 +138,25 @@ export class CloudsLayer {
 		this.highMesh = null;
 		this.shader = null;
 		this.highShader = null;
-		this.nightMaskTexture = null;
+		this.sunDirection = null;
 		this.lastFrameTime = null;
 		this.currentImage = null;
 		this.dynamicMode = false;
 		this.opacity = 1;
 		this.visible = true;
+		this.contrast = 1;
+		this.nightDarken = 0.85;
+		this.alphaCutoff = 0;
+		this.speedMultiplier = 1;
+		this.speedVariationMultiplier = 1;
+		this.secondary = { opacity: 1, contrast: 1, speed: 1, speedVariation: 1 };
 	}
 
 	debugLog() {
 		if (!this.debug) {
 			return;
 		}
-		Log.info.apply(Log, ["[MMM-Earth3D:CloudsLayer]"].concat(Array.prototype.slice.call(arguments)));
+		Log.info.apply(Log, ["[MMM-Planet3D:CloudsLayer]"].concat(Array.prototype.slice.call(arguments)));
 	}
 
 	// Builds the mesh on first call; later calls just swap the texture image without rebuilding geometry/material.
@@ -152,11 +186,14 @@ export class CloudsLayer {
 		}
 	}
 
-	// Injects the night-mask + dynamic-warp shader logic into the material's Phong shader; uniforms are stashed on `this.shader` so setNightMask()/setDynamic()/tick() can update them without recompiling.
+	// Injects the night-mask + contrast + dynamic-warp shader logic into the material's Phong shader; uniforms are stashed on `this.shader` so setSunDirection()/setDynamic()/setContrast()/tick() can update them without recompiling.
 	onMaterialCompile(shader) {
 		shader.uniforms.cloudRotation = { value: new THREE.Matrix3() };
-		shader.uniforms.nightMask = { value: this.nightMaskTexture || new THREE.DataTexture(new Uint8Array(4), 1, 1) };
-		shader.uniforms.nightMaskEnabled = { value: this.nightMaskTexture ? 1 : 0 };
+		shader.uniforms.sunDirection = { value: this.sunDirection ? this.sunDirection.clone() : new THREE.Vector3(0, 0, 1) };
+		shader.uniforms.nightMaskEnabled = { value: this.sunDirection ? 1 : 0 };
+		shader.uniforms.cloudNightDarken = { value: this.nightDarken };
+		shader.uniforms.cloudContrast = { value: this.contrast };
+		shader.uniforms.cloudAlphaCutoff = { value: this.alphaCutoff };
 		shader.uniforms.uTime = { value: 0 };
 		shader.uniforms.dynamicEnabled = { value: this.dynamicMode ? 1 : 0 };
 		shader.uniforms.dynamicScrollSpeed = { value: new THREE.Vector2(DYNAMIC_SCROLL.base.u, DYNAMIC_SCROLL.base.v) };
@@ -165,21 +202,30 @@ export class CloudsLayer {
 			.replace("#include <common>", NIGHT_MASK_VERTEX_INJECT.common)
 			.replace("#include <beginnormal_vertex>", NIGHT_MASK_VERTEX_INJECT.beginnormal_vertex);
 		shader.fragmentShader = shader.fragmentShader
-			.replace("#include <common>", NIGHT_MASK_FRAGMENT_INJECT.common + "\n" + DYNAMIC_UNIFORMS_GLSL + NOISE_GLSL)
-			.replace("#include <map_fragment>", NIGHT_MASK_FRAGMENT_INJECT.map_fragment);
+			.replace("#include <common>", CLOUD_FRAGMENT_COMMON_INJECT)
+			.replace("#include <map_fragment>", CLOUD_MAP_FRAGMENT_INJECT);
 		this.shader = shader;
-		this.debugLog("material compiled, nightMaskEnabled:", shader.uniforms.nightMaskEnabled.value, "had pending mask:", Boolean(this.nightMaskTexture));
+		this.debugLog("material compiled, nightMaskEnabled:", shader.uniforms.nightMaskEnabled.value, "had pending sun direction:", Boolean(this.sunDirection));
 	}
 
-	// High-altitude dynamic layer's shader has no night mask (faint/high, already reads fine unlit) - just the warp/scroll.
+	// High-altitude dynamic layer's shader: same night-mask + contrast + warp/scroll logic as the base layer, just its own uniforms/rotation (see tick()).
 	onHighMaterialCompile(shader) {
+		shader.uniforms.cloudRotation = { value: new THREE.Matrix3() };
+		shader.uniforms.sunDirection = { value: this.sunDirection ? this.sunDirection.clone() : new THREE.Vector3(0, 0, 1) };
+		shader.uniforms.nightMaskEnabled = { value: this.sunDirection ? 1 : 0 };
+		shader.uniforms.cloudNightDarken = { value: this.nightDarken };
+		shader.uniforms.cloudContrast = { value: this.secondary.contrast };
+		shader.uniforms.cloudAlphaCutoff = { value: this.alphaCutoff };
 		shader.uniforms.uTime = { value: 0 };
 		shader.uniforms.dynamicEnabled = { value: 1 };
 		shader.uniforms.dynamicScrollSpeed = { value: new THREE.Vector2(DYNAMIC_SCROLL.high.u, DYNAMIC_SCROLL.high.v) };
 		shader.uniforms.dynamicWarpSeed = { value: DYNAMIC_WARP_SEED.high };
+		shader.vertexShader = shader.vertexShader
+			.replace("#include <common>", NIGHT_MASK_VERTEX_INJECT.common)
+			.replace("#include <beginnormal_vertex>", NIGHT_MASK_VERTEX_INJECT.beginnormal_vertex);
 		shader.fragmentShader = shader.fragmentShader
-			.replace("#include <common>", "#include <common>\n" + DYNAMIC_UNIFORMS_GLSL + NOISE_GLSL)
-			.replace("#include <map_fragment>", DYNAMIC_MAP_FRAGMENT_INJECT);
+			.replace("#include <common>", CLOUD_FRAGMENT_COMMON_INJECT)
+			.replace("#include <map_fragment>", CLOUD_MAP_FRAGMENT_INJECT);
 		this.highShader = shader;
 	}
 
@@ -195,7 +241,7 @@ export class CloudsLayer {
 		const material = new THREE.MeshPhongMaterial({
 			map: texture,
 			transparent: true,
-			opacity: this.opacity * DYNAMIC_HIGH_OPACITY_FACTOR,
+			opacity: this.opacity * DYNAMIC_HIGH_OPACITY_FACTOR * this.secondary.opacity,
 			depthWrite: false
 		});
 		material.onBeforeCompile = (shader) => this.onHighMaterialCompile(shader);
@@ -207,25 +253,22 @@ export class CloudsLayer {
 		}
 	}
 
-	// image is EarthCompositor's small day/night alpha mask (same equirectangular projection as the clouds texture), or null to disable the effect.
-	setNightMask(image) {
-		this.debugLog("setNightMask", Boolean(image), "shader ready:", Boolean(this.shader));
-		if (this.nightMaskTexture) {
-			this.nightMaskTexture.dispose();
-			this.nightMaskTexture = null;
-		}
-		if (!image) {
-			if (this.shader) {
-				this.shader.uniforms.nightMaskEnabled.value = 0;
-			}
-			return;
-		}
-		this.nightMaskTexture = new THREE.CanvasTexture(image);
-		// The mask's per-fragment lng (via atan2) wraps at +-180deg, so it needs RepeatWrapping to avoid a hard seam.
-		this.nightMaskTexture.wrapS = THREE.RepeatWrapping;
+	// direction is PlanetCompositor's current subsolar unit vector { x, y, z } in the same object-space convention as the shader's corrected normal, or null to disable the effect.
+	setSunDirection(direction) {
+		this.debugLog("setSunDirection", Boolean(direction), "shader ready:", Boolean(this.shader));
+		this.sunDirection = direction ? new THREE.Vector3(direction.x, direction.y, direction.z) : null;
+		const enabled = this.sunDirection ? 1 : 0;
 		if (this.shader) {
-			this.shader.uniforms.nightMask.value = this.nightMaskTexture;
-			this.shader.uniforms.nightMaskEnabled.value = 1;
+			if (this.sunDirection) {
+				this.shader.uniforms.sunDirection.value.copy(this.sunDirection);
+			}
+			this.shader.uniforms.nightMaskEnabled.value = enabled;
+		}
+		if (this.highShader) {
+			if (this.sunDirection) {
+				this.highShader.uniforms.sunDirection.value.copy(this.sunDirection);
+			}
+			this.highShader.uniforms.nightMaskEnabled.value = enabled;
 		}
 	}
 
@@ -249,7 +292,58 @@ export class CloudsLayer {
 			this.mesh.material.opacity = opacity;
 		}
 		if (this.highMesh) {
-			this.highMesh.material.opacity = opacity * DYNAMIC_HIGH_OPACITY_FACTOR;
+			this.highMesh.material.opacity = opacity * DYNAMIC_HIGH_OPACITY_FACTOR * this.secondary.opacity;
+		}
+	}
+
+	// Base layer's contrast multiplier, 1 = unchanged.
+	setContrast(contrast) {
+		this.contrast = contrast;
+		if (this.shader) {
+			this.shader.uniforms.cloudContrast.value = contrast;
+		}
+	}
+
+	// How much darker clouds get on the night side, 0-1 - shared by both layers since it's a lighting effect, not a texture look.
+	setNightDarken(nightDarken) {
+		this.nightDarken = nightDarken;
+		if (this.shader) {
+			this.shader.uniforms.cloudNightDarken.value = nightDarken;
+		}
+		if (this.highShader) {
+			this.highShader.uniforms.cloudNightDarken.value = nightDarken;
+		}
+	}
+
+	// Fades out cloud fragments below this alpha (texture density) instead of blending them at full strength, 0-1, 0 = disabled - shared by both layers.
+	setAlphaCutoff(alphaCutoff) {
+		this.alphaCutoff = alphaCutoff;
+		if (this.shader) {
+			this.shader.uniforms.cloudAlphaCutoff.value = alphaCutoff;
+		}
+		if (this.highShader) {
+			this.highShader.uniforms.cloudAlphaCutoff.value = alphaCutoff;
+		}
+	}
+
+	// Base layer's rotation-speed multiplier, 1 = unchanged - applied in tick().
+	setSpeed(speed) {
+		this.speedMultiplier = speed;
+	}
+
+	// Base layer's speed-wobble magnitude multiplier, 1 = unchanged - applied in tick().
+	setSpeedVariation(speedVariation) {
+		this.speedVariationMultiplier = speedVariation;
+	}
+
+	// Secondary/high layer knobs, only meaningful once dynamic mode is on - merges a partial { opacity, contrast, speed, speedVariation } patch.
+	setSecondary(patch) {
+		this.secondary = Object.assign({}, this.secondary, patch);
+		if (this.highMesh) {
+			this.highMesh.material.opacity = this.opacity * DYNAMIC_HIGH_OPACITY_FACTOR * this.secondary.opacity;
+		}
+		if (this.highShader) {
+			this.highShader.uniforms.cloudContrast.value = this.secondary.contrast;
 		}
 	}
 
@@ -280,10 +374,11 @@ export class CloudsLayer {
 		this.lastFrameTime = now;
 
 		const nowSec = now / 1000;
-		const speedX = CLOUDS_ROTATION_SPEED_X_DEG_PER_SEC
-			* (1 + CLOUDS_SPEED_VARIATION * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_X_SEC));
-		const speedY = CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC
-			* (1 + CLOUDS_SPEED_VARIATION * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_Y_SEC + CLOUDS_VARIATION_PHASE_Y));
+		const speedVariation = CLOUDS_SPEED_VARIATION * this.speedVariationMultiplier;
+		const speedX = CLOUDS_ROTATION_SPEED_X_DEG_PER_SEC * this.speedMultiplier
+			* (1 + speedVariation * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_X_SEC));
+		const speedY = CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC * this.speedMultiplier
+			* (1 + speedVariation * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_Y_SEC + CLOUDS_VARIATION_PHASE_Y));
 
 		this.mesh.rotation.x += (speedX * Math.PI / 180) * deltaSeconds;
 		this.mesh.rotation.y += (speedY * Math.PI / 180) * deltaSeconds;
@@ -293,23 +388,29 @@ export class CloudsLayer {
 			const spinMatrix = new THREE.Matrix4().makeRotationFromEuler(this.mesh.rotation);
 			const alignmentMatrix = new THREE.Matrix4().makeRotationY(GLOBE_ALIGNMENT_ROTATION_Y);
 			this.shader.uniforms.cloudRotation.value.setFromMatrix4(alignmentMatrix.multiply(spinMatrix));
-			this.shader.uniforms.uTime.value = nowSec;
+			this.shader.uniforms.uTime.value = nowSec % UTIME_WRAP_SECONDS;
 		}
 
 		if (this.highMesh) {
-			this.highMesh.rotation.x += (DYNAMIC_HIGH_ROTATION_SPEED_X_DEG_PER_SEC * Math.PI / 180) * deltaSeconds;
-			this.highMesh.rotation.y += (DYNAMIC_HIGH_ROTATION_SPEED_Y_DEG_PER_SEC * Math.PI / 180) * deltaSeconds;
+			const highSpeedVariation = CLOUDS_SPEED_VARIATION * this.secondary.speedVariation;
+			const highSpeedX = DYNAMIC_HIGH_ROTATION_SPEED_X_DEG_PER_SEC * this.secondary.speed
+				* (1 + highSpeedVariation * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_X_SEC));
+			const highSpeedY = DYNAMIC_HIGH_ROTATION_SPEED_Y_DEG_PER_SEC * this.secondary.speed
+				* (1 + highSpeedVariation * Math.sin((2 * Math.PI * nowSec) / CLOUDS_VARIATION_PERIOD_Y_SEC + CLOUDS_VARIATION_PHASE_Y));
+
+			this.highMesh.rotation.x += (highSpeedX * Math.PI / 180) * deltaSeconds;
+			this.highMesh.rotation.y += (highSpeedY * Math.PI / 180) * deltaSeconds;
+
 			if (this.highShader) {
-				this.highShader.uniforms.uTime.value = nowSec;
+				const highSpinMatrix = new THREE.Matrix4().makeRotationFromEuler(this.highMesh.rotation);
+				const highAlignmentMatrix = new THREE.Matrix4().makeRotationY(GLOBE_ALIGNMENT_ROTATION_Y);
+				this.highShader.uniforms.cloudRotation.value.setFromMatrix4(highAlignmentMatrix.multiply(highSpinMatrix));
+				this.highShader.uniforms.uTime.value = nowSec % UTIME_WRAP_SECONDS;
 			}
 		}
 	}
 
 	destroy() {
-		if (this.nightMaskTexture) {
-			this.nightMaskTexture.dispose();
-			this.nightMaskTexture = null;
-		}
 		if (this.highMesh) {
 			this.highMesh.geometry.dispose();
 			if (this.highMesh.material.map) {

@@ -1,7 +1,7 @@
 /* global window */
 
 // Themes: named bundles covering any config field, selected via config.theme (or "custom" to set fields individually) - see "Custom themes" in README.md.
-window.EARTH3D_THEMES = [
+window.PLANET3D_THEMES = [
 	{
 		id: "realistic",
 		name: "Realistic Earth",

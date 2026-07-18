@@ -5,7 +5,7 @@
 class (a shader-based point-cloud starfield, maintained by the pmndrs/drei
 team with no React dependency) with esbuild, leaving only its `"three"`
 import external (rewritten to the relative path `./three.module.min.js`,
-matching MMM-Earth3D's own vendored Three.js build under `public/vendor/`).
+matching MMM-Planet3D's own vendored Three.js build under `public/vendor/`).
 
 ## Regenerating (e.g. after a version bump)
 
@@ -31,7 +31,7 @@ any depth) and isn't needed after `build.mjs` has run.
 `public/vendor/stars.mjs` no longer matches `build.mjs`'s raw output - it's
 hand-patched (and de-minified) to add `sizeVariation`, `twinkle`, and
 `variation` constructor/`rebuildAttributes` options plus a `phase` per-star
-attribute, so `StarfieldLayer.mjs` can drive MMM-Earth3D's Star Particles
+attribute, so `StarfieldLayer.mjs` can drive MMM-Planet3D's Star Particles
 live controls. Re-running `build.mjs` overwrites that patch - if you
 regenerate, reapply it from git history (or copy `stars.mjs`'s current
 contents over the freshly-generated file's `import`/class bodies) before

@@ -1,6 +1,6 @@
-/* global MMMEarth3DSunCalc, Log */
+/* global MMMPlanet3DSunCalc, Log */
 
-// EarthCompositor: builds the day+night texture for three-globe's globeImageUrl() on an offscreen canvas; also fetches (not draws) the clouds image and its night-mask for CloudsLayer.mjs to shade.
+// PlanetCompositor: builds the day+night texture for three-globe's globeImageUrl() on an offscreen canvas; also fetches (not draws) the clouds image and computes the current sun direction for CloudsLayer.mjs to shade with.
 
 // Terminator moves ~0.25deg/minute, imperceptibly slow, so this only needs to be a few minutes.
 const DAY_NIGHT_RECOMPUTE_MS = 5 * 60 * 1000;
@@ -12,17 +12,17 @@ const MASK_HEIGHT = 90;
 // Twilight band half-width in degrees of solar altitude, roughly matching civil twilight, for a soft terminator edge.
 const TWILIGHT_DEG = 6;
 
-const CLOUDS_NIGHT_DARKEN = 0.85;
+const DEG2RAD = Math.PI / 180;
 
 // NASA GIBS' satellite composite only updates once per day, so polling more often just re-requests the same image.
 const CLOUDS_POLL_MS = 24 * 60 * 60 * 1000;
 
-class EarthCompositor {
-	constructor(config, onReady, onCloudsImage, onCloudsNightMask, assetPath) {
+class PlanetCompositor {
+	constructor(config, onReady, onCloudsImage, onCloudsSunDirection, assetPath) {
 		this.config = config;
 		this.onReady = onReady;
 		this.onCloudsImage = onCloudsImage;
-		this.onCloudsNightMask = onCloudsNightMask;
+		this.onCloudsSunDirection = onCloudsSunDirection;
 		this.assetPath = assetPath;
 
 		this.dayImage = null;
@@ -36,9 +36,6 @@ class EarthCompositor {
 		this.maskCanvas.width = MASK_WIDTH;
 		this.maskCanvas.height = MASK_HEIGHT;
 		this.nightScratchCanvas = document.createElement("canvas");
-		this.cloudMaskCanvas = document.createElement("canvas");
-		this.cloudMaskCanvas.width = MASK_WIDTH;
-		this.cloudMaskCanvas.height = MASK_HEIGHT;
 
 		this.dayNightTimer = null;
 		this.cloudsTimer = null;
@@ -49,10 +46,10 @@ class EarthCompositor {
 		if (!this.config || !this.config.debug) {
 			return;
 		}
-		Log.info.apply(Log, ["[MMM-Earth3D:EarthCompositor]"].concat(Array.prototype.slice.call(arguments)));
+		Log.info.apply(Log, ["[MMM-Planet3D:PlanetCompositor]"].concat(Array.prototype.slice.call(arguments)));
 	}
 
-	// Set once Earth3DRenderer hears back from node_helper - realtime dayNight should reflect the MagicMirror machine's clock, not the viewing browser's.
+	// Set once Planet3DRenderer hears back from node_helper - realtime dayNight should reflect the MagicMirror machine's clock, not the viewing browser's.
 	setServerTimeOffset(offsetMs) {
 		this.debugLog("setServerTimeOffset", offsetMs);
 		this.serverTimeOffsetMs = offsetMs;
@@ -81,7 +78,7 @@ class EarthCompositor {
 				this.nightImage = img;
 				this.debugLog("night image loaded", img.naturalWidth + "x" + img.naturalHeight);
 			}).catch((err) => {
-				Log.error("MMM-Earth3D: failed to load night texture (" + err.message + ") - day/night will have no night-side lights");
+				Log.error("MMM-Planet3D: failed to load night texture (" + err.message + ") - day/night will have no night-side lights");
 			}));
 		}
 		await Promise.all(tasks);
@@ -129,7 +126,7 @@ class EarthCompositor {
 			this.cloudsRawImage = await this.loadImage(url);
 		} catch (err) {
 			// GIBS can fail/timeout - fall back to the vendored static texture rather than showing nothing.
-			Log.warn("MMM-Earth3D: clouds image failed to load (" + err.message + "), falling back to static clouds");
+			Log.warn("MMM-Planet3D: clouds image failed to load (" + err.message + "), falling back to static clouds");
 			try {
 				this.cloudsRawImage = await this.loadImage(this.assetPath("img/clouds-static.png"));
 			} catch (fallbackErr) {
@@ -138,7 +135,6 @@ class EarthCompositor {
 		}
 		this.debugLog("refreshClouds: loaded", this.cloudsRawImage.naturalWidth + "x" + this.cloudsRawImage.naturalHeight);
 		this.onCloudsImage(this.cloudsRawImage);
-		this.updateCloudNightMask(null);
 	}
 
 	// NASA GIBS' Worldview Snapshot API - the underlying composite only updates once per day.
@@ -165,13 +161,13 @@ class EarthCompositor {
 		this.ctx.clearRect(0, 0, width, height);
 		this.ctx.drawImage(this.dayImage, 0, 0, width, height);
 
-		// Computed once and shared with updateCloudNightMask() so toggling/polling day-night doesn't run the SunCalc grid twice.
+		// Computed once and shared with updateCloudSunDirection() so toggling/polling day-night doesn't run the SunCalc grid twice.
 		const dayNightEnabled = this.config.dayNight.mode !== "disabled";
-		const grid = dayNightEnabled ? this.computeAltitudeGrid() : null;
+		const gridResult = dayNightEnabled ? this.computeAltitudeGrid() : null;
 		this.debugLog("recompute", { mode: this.config.dayNight.mode, dayNightEnabled, width, height, hasNightImage: Boolean(this.nightImage) });
 
 		if (dayNightEnabled && this.nightImage) {
-			this.drawNightOverlay(width, height, grid);
+			this.drawNightOverlay(width, height, gridResult.grid);
 			this.debugLog("recompute: night overlay drawn");
 		} else if (dayNightEnabled && !this.nightImage) {
 			this.debugLog("recompute: dayNight enabled but night image not loaded yet - globe texture will show day-only this pass");
@@ -182,16 +178,16 @@ class EarthCompositor {
 		try {
 			dataUrl = this.canvas.toDataURL("image/jpeg", 0.85);
 		} catch (err) {
-			Log.error("MMM-Earth3D: failed to export composited day/night texture (" + err.message + ") - day/night will not update");
+			Log.error("MMM-Planet3D: failed to export composited day/night texture (" + err.message + ") - day/night will not update");
 			return;
 		}
 		this.debugLog("recompute: composited texture exported, length", dataUrl.length);
 		this.onReady(dataUrl);
 
-		this.updateCloudNightMask(grid);
+		this.updateCloudSunDirection(gridResult);
 	}
 
-	// Grid of solar altitude (degrees), one entry per mask pixel - shared by drawNightOverlay and buildCloudNightMask so both derive from the same terminator.
+	// Grid of solar altitude (degrees), one entry per mask pixel, plus the subsolar point (grid cell with the highest altitude) - shared by drawNightOverlay and updateCloudSunDirection so both derive from the same terminator.
 	computeAltitudeGrid() {
 		const mode = this.config.dayNight.mode;
 		const now = new Date(Date.now() + this.serverTimeOffsetMs);
@@ -201,17 +197,23 @@ class EarthCompositor {
 		const grid = new Float32Array(MASK_WIDTH * MASK_HEIGHT);
 		let minAlt = Infinity;
 		let maxAlt = -Infinity;
+		let subsolarLat = 0;
+		let subsolarLng = customLng;
 		for (let y = 0; y < MASK_HEIGHT; y++) {
 			const lat = 90 - (y / (MASK_HEIGHT - 1)) * 180;
 			for (let x = 0; x < MASK_WIDTH; x++) {
 				const lng = (x / (MASK_WIDTH - 1)) * 360 - 180;
-				// Both branches return degrees - the vendored SunCalc (window.MMMEarth3DSunCalc, not MM core's own window.SunCalc) converts internally.
+				// Both branches return degrees - the vendored SunCalc (window.MMMPlanet3DSunCalc, not MM core's own window.SunCalc) converts internally.
 				const altitudeDeg = mode === "realtime"
-					? MMMEarth3DSunCalc.getPosition(now, lat, lng).altitude
+					? MMMPlanet3DSunCalc.getPosition(now, lat, lng).altitude
 					: solarAltitudeDeg(lat, lng, 0, customLng);
 				grid[y * MASK_WIDTH + x] = altitudeDeg;
 				if (altitudeDeg < minAlt) minAlt = altitudeDeg;
-				if (altitudeDeg > maxAlt) maxAlt = altitudeDeg;
+				if (altitudeDeg > maxAlt) {
+					maxAlt = altitudeDeg;
+					subsolarLat = lat;
+					subsolarLng = lng;
+				}
 			}
 		}
 		// If min/max don't straddle +-TWILIGHT_DEG, the whole grid is on one side of the terminator - a legitimate no-visible-split result, not a bug.
@@ -222,7 +224,12 @@ class EarthCompositor {
 			minAltDeg: minAlt.toFixed(1),
 			maxAltDeg: maxAlt.toFixed(1)
 		});
-		return grid;
+		// custom mode's subsolar point is exact (equator, config.dayNight.rotate) rather than the ~2deg grid resolution the realtime argmax above is limited to.
+		return {
+			grid,
+			subsolarLat: mode === "realtime" ? subsolarLat : 0,
+			subsolarLng: mode === "realtime" ? subsolarLng : customLng
+		};
 	}
 
 	drawNightOverlay(width, height, grid) {
@@ -249,34 +256,26 @@ class EarthCompositor {
 		this.ctx.drawImage(this.nightScratchCanvas, 0, 0);
 	}
 
-	// Hands CloudsLayer.mjs a small black/transparent alpha mask (or null) to shader-sample on its own mesh - not baked into the clouds texture or a second mesh, since CloudsLayer's independent parallax spin would drift either out of alignment (or z-fight, for a second mesh); its shader corrects for that rotation itself.
-	updateCloudNightMask(grid) {
-		if (this.destroyed || !this.cloudsRawImage) {
-			this.debugLog("updateCloudNightMask: skipped", { destroyed: this.destroyed, hasCloudsImage: Boolean(this.cloudsRawImage) });
+	// Hands CloudsLayer.mjs the current subsolar direction as a unit vector (or null) to dot-product against its own per-fragment normal - a real 3D vector rather than a baked lng/lat mask, so it stays exactly consistent with the day globe's terminator at any cloud-layer rotation without a second geographic-projection implementation to keep in sync.
+	updateCloudSunDirection(gridResult) {
+		if (this.destroyed) {
 			return;
 		}
-		if (this.config.dayNight.mode === "disabled") {
-			this.debugLog("updateCloudNightMask: dayNight disabled, clearing cloud mask");
-			this.onCloudsNightMask(null);
+		if (!gridResult) {
+			this.debugLog("updateCloudSunDirection: dayNight disabled, clearing sun direction");
+			this.onCloudsSunDirection(null);
 			return;
 		}
-		this.buildCloudNightMask(grid || this.computeAltitudeGrid());
-		this.debugLog("updateCloudNightMask: sending cloud mask canvas to CloudsLayer");
-		this.onCloudsNightMask(this.cloudMaskCanvas);
-	}
-
-	// Black, alpha = nightAlpha * CLOUDS_NIGHT_DARKEN - transparent by day, fading to translucent black by night.
-	buildCloudNightMask(grid) {
-		const ctx = this.cloudMaskCanvas.getContext("2d");
-		const imageData = ctx.createImageData(MASK_WIDTH, MASK_HEIGHT);
-		for (let i = 0; i < grid.length; i++) {
-			const idx = i * 4;
-			imageData.data[idx] = 0;
-			imageData.data[idx + 1] = 0;
-			imageData.data[idx + 2] = 0;
-			imageData.data[idx + 3] = Math.round(nightAlpha(grid[i]) * CLOUDS_NIGHT_DARKEN);
-		}
-		ctx.putImageData(imageData, 0, 0);
+		const latRad = gridResult.subsolarLat * DEG2RAD;
+		const lngRad = gridResult.subsolarLng * DEG2RAD;
+		// Matches CloudsLayer.mjs's shader-side lng/lat<->normal convention (lng = atan2(-z, x), lat = asin(y)) inverted, so dot(normal, sunDirection) is exactly sin(solar altitude).
+		const direction = {
+			x: Math.cos(latRad) * Math.cos(lngRad),
+			y: Math.sin(latRad),
+			z: -Math.cos(latRad) * Math.sin(lngRad)
+		};
+		this.debugLog("updateCloudSunDirection", direction);
+		this.onCloudsSunDirection(direction);
 	}
 
 	destroy() {

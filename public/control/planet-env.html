@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MMM-Earth3D Control - Planet &amp; Env</title>
+<title>MMM-Planet3D Control - Planet &amp; Env</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -47,16 +47,19 @@
 				<span class="name">Star Count</span>
 				<input type="range" id="starfieldCount" min="500" max="40000" step="100" value="6600">
 				<span class="value" id="starfieldCount-val">6600</span>
+				<button type="button" class="reset-btn" data-reset-target="starfieldCount" title="Reset to theme default">↺</button>
 			</label>
 			<label>
 				<span class="name">Star Size</span>
 				<input type="range" id="starfieldSize" min="10" max="500" value="100">
 				<span class="value" id="starfieldSize-val">100</span>
+				<button type="button" class="reset-btn" data-reset-target="starfieldSize" title="Reset to theme default">↺</button>
 			</label>
 			<label>
 				<span class="name">Size Variation</span>
 				<input type="range" id="starfieldSizeVariation" min="0" max="100" value="50">
 				<span class="value" id="starfieldSizeVariation-val">50</span>
+				<button type="button" class="reset-btn" data-reset-target="starfieldSizeVariation" title="Reset to theme default">↺</button>
 			</label>
 			<label>
 				<span class="name">Star Color</span>
@@ -66,6 +69,7 @@
 				<span class="name">Color Variation</span>
 				<input type="range" id="starfieldColorVariation" min="0" max="100" value="40">
 				<span class="value" id="starfieldColorVariation-val">40</span>
+				<button type="button" class="reset-btn" data-reset-target="starfieldColorVariation" title="Reset to theme default">↺</button>
 			</label>
 			<label>
 				<span class="name">Fading Effect</span>
@@ -75,11 +79,13 @@
 				<span class="name">Effect Variation</span>
 				<input type="range" id="starfieldEffectVariation" min="0" max="100" value="0">
 				<span class="value" id="starfieldEffectVariation-val">0</span>
+				<button type="button" class="reset-btn" data-reset-target="starfieldEffectVariation" title="Reset to theme default">↺</button>
 			</label>
 			<label class="sub-row" id="starfieldEffectSpeedRow">
 				<span class="name">Effect Speed</span>
 				<input type="range" id="starfieldEffectSpeed" min="10" max="300" value="100">
 				<span class="value" id="starfieldEffectSpeed-val">100</span>
+				<button type="button" class="reset-btn" data-reset-target="starfieldEffectSpeed" title="Reset to theme default">↺</button>
 			</label>
 		</div>
 	</fieldset>
@@ -152,12 +158,12 @@
 </main>
 
 <!-- Absolute paths - see home.html's comment above these tags for why. -->
-<script src="/modules/MMM-Earth3D/presets/atmosphere.js"></script>
-<script src="/modules/MMM-Earth3D/presets/earthTextures.js"></script>
-<script src="/modules/MMM-Earth3D/presets/backgrounds.js"></script>
-<script src="/modules/MMM-Earth3D/presets/camera.js"></script>
-<script src="/modules/MMM-Earth3D/presets/themes.js"></script>
-<script src="/modules/MMM-Earth3D/presets/themes-user.js"></script>
+<script src="/modules/MMM-Planet3D/presets/atmosphere.js"></script>
+<script src="/modules/MMM-Planet3D/presets/earthTextures.js"></script>
+<script src="/modules/MMM-Planet3D/presets/backgrounds.js"></script>
+<script src="/modules/MMM-Planet3D/presets/camera.js"></script>
+<script src="/modules/MMM-Planet3D/presets/themes.js"></script>
+<script src="/modules/MMM-Planet3D/presets/themes-user.js"></script>
 <script type="module" src="core.js"></script>
 
 </body>

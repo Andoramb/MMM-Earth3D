@@ -4,7 +4,7 @@ let cameraPresetEl;
 
 export function init (ctx) {
 	cameraPresetEl = document.getElementById("cameraPreset");
-	const cameraPresets = (window.EARTH3D_PRESETS && window.EARTH3D_PRESETS.camera) || [];
+	const cameraPresets = (window.PLANET3D_PRESETS && window.PLANET3D_PRESETS.camera) || [];
 	ctx.populatePresetSelect(cameraPresetEl, cameraPresets, true);
 
 	// Touching any manual camera/position slider switches the preset select back to "custom".
@@ -65,6 +65,8 @@ export function init (ctx) {
 
 export function applyConfig (config, ctx) {
 	cameraPresetEl.value = config.camera.preset;
+	// tile-engine has no fixed source resolution to run out of - matches Planet3DRenderer.mjs's getZoomMax().
+	document.getElementById("zoom").max = config.texture.preset === "tile-engine" ? 400 : 200;
 	ctx.setSliderValue("zoom", config.camera.zoom);
 	ctx.setSliderValue("rotateX", config.camera.rotate.x);
 	ctx.setSliderValue("rotateY", config.camera.rotate.y);

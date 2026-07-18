@@ -5,6 +5,7 @@ node_modules/
 
 presets/themes-user.js
 presets/flight-credentials.json
+presets/.geocode-cache.json
 
 CLAUDE.md
 .impeccable

@@ -1,4 +1,4 @@
-/* Shared styles for the MMM-Earth3D control panel, linked from every page instead of copy-pasted <style> blocks. */
+/* Shared styles for the MMM-Planet3D control panel, linked from every page instead of copy-pasted <style> blocks. */
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
 body {
@@ -133,6 +133,7 @@ input[type="checkbox"] { width: 18px; height: 18px; }
 .row { margin-bottom: 10px; }
 .sub-row { display: none; }
 .sub-row.visible { display: block; }
+label.sub-row.visible { display: flex; }
 .theme-actions { display: flex; flex-direction: column; gap: 8px; }
 .theme-actions button {
 	background: #1c1c1c;

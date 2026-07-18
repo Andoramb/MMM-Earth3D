@@ -1,20 +1,43 @@
 ---
-name: mmm-earth3d-control
-description: Control a running MMM-Earth3D 3D globe module (MagicMirror) over its local HTTP API — change theme, camera, atmosphere, texture, background, quality, day/night, clouds, rotation speed, real-time flight tracking, highlight/center a city, or manage saved themes. Use when asked to change, tune, animate, track a flight on, highlight/center a city, or inspect the Earth3D globe display.
-metadata:
-  base_url: http://192.168.1.42:8090
+name: mmm-planet3d-control
+description: Control a running MMM-Planet3D 3D globe module (MagicMirror) over its local HTTP API — change theme, camera, atmosphere, texture, background, quality, day/night, clouds, rotation speed, real-time flight tracking, highlight/center a city, or manage saved themes. Use when asked to change, tune, animate, track a flight on, highlight/center a city, or inspect the Planet3D globe display.
 ---
 
-# MMM-Earth3D control API
+# MMM-Planet3D control API
 
-MMM-Earth3D is a MagicMirror² module that renders a rotating 3D Earth. It
-ships its own `node_helper.js` HTTP API — no auth, no other module required —
-that lets any client on the LAN read and change the running globe's
-configuration in real time (no MagicMirror restart or page reload needed).
+MMM-Planet3D is a MagicMirror² module that renders a rotating 3D planet. Its
+`node_helper.js` registers its routes directly on **MagicMirror's own Express
+server** (`this.expressApp`) — there's no separate service/port to stand up.
+That means the control API always lives at the same host/port as the
+MagicMirror instance itself, and lets any client on the LAN read and change
+the running globe's configuration in real time (no MagicMirror restart or
+page reload needed).
 
-**Base URL for this deployment: `http://192.168.1.42:8090`**
+## Determining the base URL
 
-All endpoints below are relative to that base URL. This is a bare LAN HTTP
+There is no fixed base URL — it's whatever host/port this deployment's
+MagicMirror runs on. Work it out like this, in order:
+
+1. **Ask, if the user already gave you one** (a hostname, IP, or full URL) —
+   use it as-is.
+2. **Check the MagicMirror `config.js`** for this installation (usually
+   `~/MagicMirror/config/config.js` or wherever the mirror was set up) for a
+   top-level `port` (default `8080` if unset) and `address` (default binds
+   all interfaces, but usually reachable via `localhost` if you're on the
+   same machine, otherwise the mirror's LAN hostname/IP).
+3. **If running on the same machine as this agent**, `http://localhost:8080`
+   is the common default — try it.
+4. **Otherwise, ask the operator** for the mirror's hostname/IP and port
+   rather than guessing at a LAN address.
+
+Once known, keep it in a shell variable for the rest of the session so the
+commands below can be copy-pasted as-is:
+
+```bash
+BASE_URL="http://<mirror-host>:<port>"   # e.g. http://localhost:8080
+```
+
+All endpoints below are relative to `$BASE_URL`. This is a bare LAN HTTP
 API with no authentication — treat the base URL itself as the access
 control boundary.
 
@@ -28,14 +51,14 @@ with these top-level fields:
 | `theme` | string \| `"custom"` | id from the theme list (see below), or `"custom"` to use the fields below individually |
 | `rotationSpeed` | number 0-100 | spin speed, 0 = stopped, saturates at 25 (see below) |
 | `quality` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` | render/texture quality tier |
-| `atmosphere` | object | `{ preset, color, altitude, opacity }` |
+| `atmosphere` | object | `{ preset, color, altitude, opacity, strength, fadeIn }` |
 | `texture` | object | `{ preset, imageUrl, bumpImageUrl }` |
 | `background` | object | `{ enabled, preset, imageUrl, starfield }` — flat image sphere (`night-sky`) or real 3D star particles (`star-particles`), both spinning together with the globe; `starfield` (only used when `preset` is `star-particles`) is `{ count, size, sizeVariation, color, colorVariation, fading, effectVariation, effectSpeed }`, see the field value ranges table below |
 | `camera` | object | `{ preset, zoom, rotate: {x,y,z}, position: {x,y} }` — `position` is also live-settable by hand on the display itself: Shift+drag pans X/Y, plain scroll zooms |
 | `dayNight` | object | `{ mode: "disabled"\|"realtime"\|"custom", rotate }` |
-| `clouds` | object | `{ enabled, source: "static"\|"dynamic"\|"realtime", opacity }` |
+| `clouds` | object | `{ enabled, source: "static"\|"dynamic"\|"realtime", opacity, contrast, speed, speedVariation, secondary: { opacity, contrast, speed, speedVariation } }` |
 | `flights` | object | `{ enabled, flightNumber, track, pollInterval }` — real-time flight tracking, see below. **Not** part of `theme` (switching theme never changes or clears it, and it's never included in `theme` save/duplicate) — it's session/operational state, not a visual look. |
-| `city` | object | `{ name, center }` — labeled marker (dot + text) per city; `name` is a single name or a `;`-separated list for multiple markers (e.g. `"Tokyo;Gothenburg"`); `center: true` is a one-shot action, not persisted state (see below) |
+| `city` | object | `{ name, center }` — labeled marker (dot + text) per city/place/POI; `name` is a single name or a `;`-separated list for multiple markers (e.g. `"Tokyo;Gothenburg"`), each resolved via a live geocode lookup (no bundled/offline city list); `center: true` is a one-shot action, not persisted state (see below) |
 
 You change it by **POSTing a sparse partial** — only include the fields you
 want to change. Everything else keeps its current value. Send `null` for a
@@ -48,7 +71,7 @@ covers that axis (any axis may be omitted in either form).
 
 ## Endpoints
 
-### 1. `POST /MMM-Earth3D/set-config` — change the live globe
+### 1. `POST /MMM-Planet3D/set-config` — change the live globe
 
 Body: any partial config object (see fields above). Applies immediately on
 the running display, with atmosphere/camera/rotationSpeed easing smoothly
@@ -58,54 +81,54 @@ next recompute.
 
 ```bash
 # Switch to a whole different look in one call
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"theme": "close-up"}'
 
 # Tweak just the camera zoom, leaving everything else as-is
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"camera": {"zoom": 80}}'
 
 # Turn on realtime clouds and realtime day/night together
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"clouds": {"enabled": true, "source": "realtime"}, "dayNight": {"mode": "realtime"}}'
 
 # Reset atmosphere altitude back to its theme/preset/default value
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"atmosphere": {"altitude": null}}'
 
 # Stop rotation entirely
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"rotationSpeed": 0}'
 
 # Highlight a city (dot + label marker), without moving the camera
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"city": {"name": "Tokyo"}}'
 
 # Highlight multiple cities at once - ";"-separated, one marker each
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"city": {"name": "Tokyo;Gothenburg"}}'
 
 # Rotate the globe (auto-spin keeps running, it just eases toward this
 # orientation) so the first city in the currently-configured list ends up
 # centered on screen
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"city": {"center": true}}'
 
 # Set and center in one request
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"city": {"name": "Sydney", "center": true}}'
 
 # Clear the city marker
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/set-config \
   -H "content-type: application/json" \
   -d '{"city": {"name": ""}}'
 ```
@@ -123,25 +146,32 @@ rendering the globe; it does not wait for the browser to apply it).
   future theme switches until explicitly reset with `null` — it "wins" over
   any theme by design.
 - `city.name` is a single name or a `;`-separated list (e.g.
-  `"Tokyo;Gothenburg"`), each matched case-insensitively against a bundled
-  city list (exact match, then prefix, then substring), no geocoding API
-  involved - see `GET /MMM-Earth3D/config`'s `config.city.cities` below to
-  check what actually matched per name (`matchedName: null` for any that
-  didn't - an unrecognized name is just skipped, not an error; if every name
-  is unrecognized, no marker is shown). `city.center` is a **one-shot
-  action** that recenters on the *first* name in the list, not a stored
-  value - it's never reflected back in `GET /MMM-Earth3D/config`'s
-  `overrides`, and switching `theme` never clears a configured city marker
-  (unlike every other field in the table above).
+  `"Tokyo;Gothenburg"`), each resolved via a live OpenStreetMap/Nominatim
+  geocode lookup (server-side, rate-limited to 1 req/sec, cached to disk) —
+  there's no bundled/offline city list, so arbitrary places/landmarks/
+  addresses work too, not just well-known cities. This lookup is async, so a
+  freshly-set name may take a second or two to resolve; poll
+  `GET /MMM-Planet3D/config` again if `matchedName` is still `null` right
+  after setting it. See `config.city.cities` below to check what actually
+  matched per name (`matchedName: null` for any that didn't resolve at all -
+  not an error; if every name is unresolved, no marker is shown). The label
+  drawn on the globe itself always shows the name **as you typed it**, not
+  Nominatim's (often much longer) resolved `matchedName` — that field is
+  only useful for confirming the lookup found the right place.
+  `city.center` is a **one-shot action** that recenters on the *first* name
+  in the list, not a stored value - it's never reflected back in
+  `GET /MMM-Planet3D/config`'s `overrides`, and switching `theme` never
+  clears a configured city marker (unlike every other field in the table
+  above).
 
-### 2. `GET /MMM-Earth3D/config` — read current resolved state
+### 2. `GET /MMM-Planet3D/config` — read current resolved state
 
 Returns the globe's fully-resolved current config plus the sparse overrides
 currently pinned on top of it. Round-trips to the browser tab over MM's
 socket channel (timeout 3s → `504` if no module/browser is actually running).
 
 ```bash
-curl -sS http://192.168.1.42:8090/MMM-Earth3D/config
+curl -sS $BASE_URL/MMM-Planet3D/config
 ```
 
 Response shape:
@@ -160,7 +190,7 @@ or to read current state before computing a relative change (e.g. "zoom in
 10 more" requires reading current `camera.zoom` first, then POSTing
 `current + 10`).
 
-### 3. `POST /MMM-Earth3D/theme` — manage saved (user) themes
+### 3. `POST /MMM-Planet3D/theme` — manage saved (user) themes
 
 Only ever writes to the module's user-theme file, never the built-in
 `presets/themes.js` — built-in themes are read-only from this endpoint.
@@ -169,17 +199,28 @@ Body: `{"action": "duplicate" | "save" | "delete", ...}`
 
 **duplicate** — clone an existing theme (built-in or user) into a new user theme:
 ```bash
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/theme \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/theme \
   -H "content-type: application/json" \
   -d '{"action": "duplicate", "sourceId": "close-up", "name": "My close-up"}'
 ```
 `name` is optional (defaults to `"<source name> copy"`). Response includes
 the new theme's generated `id`.
 
+`sourceId: "custom"` snapshots the *live resolved config* instead of a stored
+theme (for when `config.theme` is `"custom"` and there's nothing to look up)
+— pass `config` (the full object from `GET /MMM-Planet3D/config`'s `.config`,
+not `.overrides`) instead of `sourceId`/`name`; the new theme is auto-named
+`"Custom 1"`, `"Custom 2"`, etc:
+```bash
+curl -sS $BASE_URL/MMM-Planet3D/config > /tmp/state.json
+node -e 'const s=require("/tmp/state.json");console.log(JSON.stringify({action:"duplicate",sourceId:"custom",config:s.config}))' > /tmp/body.json
+curl -sS -X POST $BASE_URL/MMM-Planet3D/theme -H "content-type: application/json" -d @/tmp/body.json
+```
+
 **save** — merge field overrides into an existing *user* theme (rejected for
 built-in themes — duplicate first):
 ```bash
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/theme \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/theme \
   -H "content-type: application/json" \
   -d '{"action": "save", "themeId": "my-close-up", "overrides": {"rotationSpeed": 35, "camera": {"zoom": 90}}}'
 ```
@@ -188,7 +229,7 @@ curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/theme \
 
 **delete** — remove a user theme (rejected for built-in themes):
 ```bash
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/theme \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/theme \
   -H "content-type: application/json" \
   -d '{"action": "delete", "themeId": "my-close-up"}'
 ```
@@ -200,20 +241,20 @@ to save/delete a built-in theme).
 **Note:** editing the theme file does not affect the *currently rendering*
 globe — it only affects what a future page load/reload resolves. To see a
 new/edited theme live immediately, `duplicate`/`save` it, then also
-`POST /MMM-Earth3D/set-config` with `{"theme": "<its id>"}` if you want the
+`POST /MMM-Planet3D/set-config` with `{"theme": "<its id>"}` if you want the
 live display to pick it up without a reload — though note a running globe
 already has its own resolved config; theme *file* edits only matter on next
 load, while `set-config` with a theme id switches the live display right now
 regardless of whether that theme is user- or built-in-sourced.
 
-### 4. `GET /MMM-Earth3D/flights/status` — read live flight-tracking state
+### 4. `GET /MMM-Planet3D/flights/status` — read live flight-tracking state
 
-Unlike `GET /MMM-Earth3D/config`, this answers directly from node_helper's own
+Unlike `GET /MMM-Planet3D/config`, this answers directly from node_helper's own
 state (no round-trip to the browser tab) since node_helper itself owns the
 OpenSky polling loop, not the module.
 
 ```bash
-curl -sS http://192.168.1.42:8090/MMM-Earth3D/flights/status
+curl -sS $BASE_URL/MMM-Planet3D/flights/status
 ```
 
 Response shape:
@@ -236,7 +277,7 @@ every real position sample since tracking last (re)started for this
 on a temporary `found: false` blip or on disable/re-enable of the same
 flight.
 
-### 5. `GET`/`POST /MMM-Earth3D/flights/credentials` — optional OpenSky API tier
+### 5. `GET`/`POST /MMM-Planet3D/flights/credentials` — optional OpenSky API tier
 
 The Flight layer works with **zero setup** (anonymous OpenSky access, 400
 requests/day). Setting a free OpenSky account's OAuth2 client credentials
@@ -245,22 +286,22 @@ poll where the registered call fails. Credentials are stored server-side
 only and **never** echoed back — `GET` only ever reports whether one is set.
 
 ```bash
-curl -sS http://192.168.1.42:8090/MMM-Earth3D/flights/credentials
+curl -sS $BASE_URL/MMM-Planet3D/flights/credentials
 # => {"configured": false}
 
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/flights/credentials \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/flights/credentials \
   -H "content-type: application/json" \
   -d '{"clientId": "...", "clientSecret": "..."}'
 
 # Remove saved credentials, revert to anonymous:
-curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/flights/credentials \
+curl -sS -X POST $BASE_URL/MMM-Planet3D/flights/credentials \
   -H "content-type: application/json" -d '{"clear": true}'
 ```
 
 Credentials can also be set once in the module's own `config.js` instead of
 via this endpoint - `flightCredentials: { clientId, clientSecret }` alongside
 the module's other config (**not** nested inside `flights`, and never
-returned by `GET /MMM-Earth3D/config` or `set-config`-able - it's config.js-only,
+returned by `GET /MMM-Planet3D/config` or `set-config`-able - it's config.js-only,
 by design, since that field would otherwise round-trip a secret over this
 same unauthenticated LAN API). Applied once when the module starts/reloads,
 via the same underlying storage this endpoint uses - so it takes precedence
@@ -269,8 +310,9 @@ over (overwrites) a previously `POST`-ed credential on the next restart.
 ## Reference: built-in preset and theme IDs
 
 These ids exist out of the box (a deployment may also have extra ids in its
-gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'s
-`overrides`, or by asking the operator).
+gitignored `presets/themes-user.js` — or `~/.mmm-planet3d/themes-user.js` if
+the module folder itself isn't writable — discoverable via `GET
+/MMM-Planet3D/config`'s `overrides`, or by asking the operator).
 
 **Themes** (`theme` field) — each bundles multiple fields at once:
 | id | summary |
@@ -298,11 +340,15 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 | `camera.position.{x,y}` | scene units, roughly `-200`-`200` — needs tuning by eye; also settable by Shift+dragging the globe on the display |
 | `quality` | `low` \| `medium` \| `high` \| `ultra` |
 | `atmosphere.altitude` | roughly `0`-`0.5` |
-| `atmosphere.opacity` | `0` (hidden) - `1` (shown); on/off threshold, not true alpha |
+| `atmosphere.opacity` | `0` (hidden) - `1` (shown); `0` also fully hides it, otherwise fades glow intensity |
+| `atmosphere.strength` | glow intensity multiplier, `1` = default, roughly `0`-`3` |
+| `atmosphere.fadeIn` | degrees in from the limb over which an inward haze layer (hugging the visible disk, brightest facing the camera) ramps up to full brightness, `8` = default |
 | `dayNight.mode` | `disabled` \| `realtime` \| `custom` |
 | `dayNight.rotate` | `0`-`360` degrees, only used when `mode: "custom"` |
 | `clouds.source` | `static` (no network) \| `dynamic` (no network; same texture, animated via a layered/noise-warped shader) \| `realtime` (NASA GIBS, refreshed every 24h) |
 | `clouds.opacity` | `0`-`1` |
+| `clouds.contrast` \| `clouds.speed` \| `clouds.speedVariation` | multipliers on the base layer's texture contrast/rotation speed/speed-wobble, `1` = unchanged |
+| `clouds.secondary.opacity` \| `.contrast` \| `.speed` \| `.speedVariation` | same 4 multipliers for the high-altitude layer, only visible when `clouds.source: "dynamic"`, `1` = unchanged |
 | `background.enabled` | `true` \| `false` |
 | `background.preset` | `night-sky` \| `star-particles` \| `custom` (with `background.imageUrl`) |
 | `background.starfield.count` | `500`-`20000`, total stars across all 4 depth layers (default `6600`) |
@@ -320,7 +366,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 
 ## Common agent recipes
 
-**"Zoom in":** `GET /MMM-Earth3D/config`, read `config.camera.zoom`, POST
+**"Zoom in":** `GET /MMM-Planet3D/config`, read `config.camera.zoom`, POST
 `{"camera": {"zoom": <current + delta, clamped 0-200>}}`.
 
 **"Speed up/slow down rotation":** same pattern with `rotationSpeed`.
@@ -341,7 +387,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 
 **"Stop tracking":** `{"flights": {"enabled": false}}` (leaves `flightNumber`/`track` as-is, so re-enabling resumes the same flight).
 
-**"Is the flight actually showing up?":** `GET /MMM-Earth3D/flights/status` — check `found` and `lastError`.
+**"Is the flight actually showing up?":** `GET /MMM-Planet3D/flights/status` — check `found` and `lastError`.
 
 **"Highlight/show/mark <city>":** `{"city": {"name": "<city>"}}`. For multiple cities, join with `;`: `{"city": {"name": "<city1>;<city2>"}}`.
 

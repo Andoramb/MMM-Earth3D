@@ -1,4 +1,4 @@
-// Flight panel (layers.html, disabled - see layers.html) - flight number, Track, poll interval; also polls GET /MMM-Earth3D/flights/status directly for status text.
+// Flight panel (layers.html, disabled - see layers.html) - flight number, Track, poll interval; also polls GET /MMM-Planet3D/flights/status directly for status text.
 
 const STATUS_POLL_MS = 3000;
 const FLIGHT_NUMBER_DEBOUNCE_MS = 500;
@@ -28,7 +28,7 @@ function describeStatus (status) {
 }
 
 function refreshStatus () {
-	fetch("/MMM-Earth3D/flights/status")
+	fetch("/MMM-Planet3D/flights/status")
 		.then((res) => res.json())
 		.then((status) => {
 			flightStatusHint.textContent = describeStatus(status);

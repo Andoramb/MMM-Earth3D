@@ -1,0 +1,14 @@
+.MMM-Planet3D {
+	overflow: hidden;
+	/* MM's .region.fullscreen sets pointer-events:none (inherited) - without this override, elementFromPoint-based occlusion checks would never find this element and it'd stay "occluded" forever. */
+	pointer-events: auto;
+	position: relative;
+}
+
+.MMM-Planet3D--fullscreen {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+}
