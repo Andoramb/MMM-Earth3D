@@ -1,4 +1,3 @@
-/* global window */
 
 // Earth texture presets - select via config.texture.preset; `images` maps quality tier ("2k"/"4k"/"8k") to files under public/.
 window.PLANET3D_PRESETS = window.PLANET3D_PRESETS || {};

@@ -1,4 +1,3 @@
-/* global window */
 
 // Camera presets - select via config.camera.preset, or "custom" for the manual zoom/rotate/position fields.
 window.PLANET3D_PRESETS = window.PLANET3D_PRESETS || {};

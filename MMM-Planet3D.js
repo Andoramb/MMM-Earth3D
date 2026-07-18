@@ -1,4 +1,4 @@
-/* global Module, MMMPlanet3DConfigResolver, window */
+/* global MMMPlanet3DConfigResolver */
 
 // MMM-Planet3D: a MagicMirror module for a rotating 3D planet (three-globe/Three.js).
 Module.register("MMM-Planet3D", {

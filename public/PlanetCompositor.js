@@ -1,4 +1,4 @@
-/* global MMMPlanet3DSunCalc, Log */
+/* global MMMPlanet3DSunCalc */
 
 // PlanetCompositor: builds the day+night texture for three-globe's globeImageUrl() on an offscreen canvas; also fetches (not draws) the clouds image and computes the current sun direction for CloudsLayer.mjs to shade with.
 
@@ -129,7 +129,7 @@ class PlanetCompositor {
 			Log.warn("MMM-Planet3D: clouds image failed to load (" + err.message + "), falling back to static clouds");
 			try {
 				this.cloudsRawImage = await this.loadImage(this.assetPath("img/clouds-static.png"));
-			} catch (fallbackErr) {
+			} catch {
 				return; // no-op: keep whatever clouds image (if any) was already showing
 			}
 		}
@@ -285,10 +285,14 @@ class PlanetCompositor {
 	}
 }
 
+// Consumed by Planet3DRenderer.mjs (an ES module) as a bare `PlanetCompositor` global - explicit window assignment
+// rather than relying on classic-script global-lexical-scope sharing, matching this module's other cross-script globals.
+window.PlanetCompositor = PlanetCompositor;
+
 function isCrossOrigin(url) {
 	try {
 		return new URL(url, window.location.href).origin !== window.location.origin;
-	} catch (err) {
+	} catch {
 		return false;
 	}
 }

@@ -4,7 +4,9 @@
 	"description": "A MagicMirror module that displays a rotating 3D planet (three-globe/Three.js), with room to grow into clouds, day/night, markers, and live data overlays.",
 	"main": "MMM-Planet3D.js",
 	"scripts": {
-		"test": "echo \"No tests specified\" && exit 0"
+		"test": "echo \"No tests specified\" && exit 0",
+		"lint": "eslint",
+		"lint:fix": "eslint --fix"
 	},
 	"keywords": [
 		"magicmirror",
@@ -15,5 +17,11 @@
 		"3d",
 		"webgl"
 	],
-	"license": "MIT"
+	"license": "MIT",
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@stylistic/eslint-plugin": "^5.10.0",
+		"eslint": "^10.7.0",
+		"globals": "^17.7.0"
+	}
 }

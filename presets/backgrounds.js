@@ -1,4 +1,3 @@
-/* global window */
 
 // Background presets - select via config.background.preset ("custom" + imageUrl for your own); only shown when config.background.enabled is true.
 window.PLANET3D_PRESETS = window.PLANET3D_PRESETS || {};

@@ -1,4 +1,3 @@
-/* global window */
 
 // Atmosphere presets - select via config.atmosphere.preset, or "custom" for the manual fields below.
 window.PLANET3D_PRESETS = window.PLANET3D_PRESETS || {};

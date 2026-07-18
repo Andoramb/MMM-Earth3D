@@ -20,21 +20,20 @@ A [MagicMirror²](https://magicmirror.builders/) module that renders a rotating,
 
 ## Installation
 
-Navigate to your MagicMirror's modules folder, ex.:
-
 ```bash
 cd ~/MagicMirror/modules
-```
-
-Clone this repository:
-
-```bash
 git clone https://github.com/Andoramb/MMM-Planet3D.git
 ```
 
-Add (parts) of the example configuration below;
+Add (parts) of the example configuration below, then navigate to
+`http://<mirror-host>:<port>/planet3d.html` for the browser-based control panel.
 
-Navigate to `http:///<mirror-host>:<port>/planet3d.html`
+## Update
+
+```bash
+cd ~/MagicMirror/modules/MMM-Planet3D
+git pull
+```
 
 ## Configuration
 
@@ -78,7 +77,7 @@ Navigate to `http:///<mirror-host>:<port>/planet3d.html`
 			name: ""
 		}
 	}
-}
+},
 ```
 
 | Option | Type | Default | Description |
@@ -131,6 +130,11 @@ If [MMM-Remote-Control](https://github.com/Jopyth/MMM-Remote-Control) is install
 ### Bonus for LLM agents
 
 `skills/mmm-planet3d-control/SKILL.md` documents the full HTTP API for driving this module from an LLM agent — themes, live tuning, flight tracking, city markers.
+
+## Developer commands
+
+- `node --run lint` - Run linting checks.
+- `node --run lint:fix` - Fix automatically fixable linting errors.
 
 ## Attributions & data sources
 

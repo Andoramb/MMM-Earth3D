@@ -1,4 +1,3 @@
-/* global window */
 
 // Themes: named bundles covering any config field, selected via config.theme (or "custom" to set fields individually) - see "Custom themes" in README.md.
 window.PLANET3D_THEMES = [
