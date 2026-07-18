@@ -1,19 +1,6 @@
 /* global window */
 
-/*
- * Bundled city lookup table for MMM-Earth3D's city marker feature
- * (config.city.name). Kept as a plain vendored dataset - like the earth
- * textures in public/img/ - rather than a live geocoding API call, so
- * placing a city marker has no runtime internet dependency and works the
- * same on an offline mirror. Coordinates are each city's approximate
- * center/downtown point, not a precise administrative centroid - fine for a
- * marker on a globe rendered at 500-2000px.
- *
- * MMM-Earth3D.js's findCity() matches config.city.name against this list
- * case-insensitively (exact match first, then prefix, then substring). Add
- * your own entries here for a city that isn't covered - no id required,
- * just a unique-enough name.
- */
+// Bundled city lookup for config.city.name (MMM-Earth3D.js's findCity()) - vendored, not geocoded, so it works offline.
 window.EARTH3D_CITIES = [
 	{ name: "Tokyo", country: "Japan", lat: 35.6762, lng: 139.6503 },
 	{ name: "Delhi", country: "India", lat: 28.7041, lng: 77.1025 },

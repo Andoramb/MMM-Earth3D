@@ -1,7 +1,4 @@
-/*
- * Rotation-speed panel (planet-env.html) - the globe's own spin, a plain
- * top-level scalar (not part of the camera/texture/background objects).
- */
+// Rotation-speed panel (planet-env.html) - the globe's own spin, a plain top-level scalar.
 
 export function init (ctx) {
 	ctx.bindSlider("rotationSpeed", (value) => ctx.send({ rotationSpeed: value }));

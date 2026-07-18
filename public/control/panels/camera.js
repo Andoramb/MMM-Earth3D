@@ -1,11 +1,4 @@
-/*
- * Camera panel (planet-env.html) - spans two fieldsets, "Camera" (preset,
- * zoom, tilt) and "Position", both against the same config.camera object
- * and the same preset. Kept as one module (not two) since touching any
- * manual slider in either fieldset needs to flip the SAME preset select
- * back to "custom" - splitting them would mean two modules reaching into
- * each other's DOM, which defeats the point of the split.
- */
+// Camera panel (planet-env.html) - spans the "Camera" and "Position" fieldsets, both against the same config.camera object/preset.
 
 let cameraPresetEl;
 
@@ -14,8 +7,7 @@ export function init (ctx) {
 	const cameraPresets = (window.EARTH3D_PRESETS && window.EARTH3D_PRESETS.camera) || [];
 	ctx.populatePresetSelect(cameraPresetEl, cameraPresets, true);
 
-	// Touching any manual camera/position slider switches the module back
-	// to "custom" mode, since a preset's values would otherwise keep winning.
+	// Touching any manual camera/position slider switches the preset select back to "custom".
 	function sendCustomCamera (cameraPatch) {
 		cameraPresetEl.value = "custom";
 		ctx.send({ camera: Object.assign({ preset: "custom" }, cameraPatch) });

@@ -228,6 +228,13 @@ Response shape:
 `found: false` means no current match for `flightNumber` — either it isn't
 airborne right now, or OpenSky has no live position report for it.
 
+The globe also draws a fading ground-track line behind the marker (faint at
+the earliest known position, solid at the current one), accumulated from
+every real position sample since tracking last (re)started for this
+`flightNumber`. It resets automatically when `flightNumber` changes, but not
+on a temporary `found: false` blip or on disable/re-enable of the same
+flight.
+
 ### 5. `GET`/`POST /MMM-Earth3D/flights/credentials` — optional OpenSky API tier
 
 The Flight layer works with **zero setup** (anonymous OpenSky access, 400
@@ -248,6 +255,15 @@ curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/flights/credentials \
 curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/flights/credentials \
   -H "content-type: application/json" -d '{"clear": true}'
 ```
+
+Credentials can also be set once in the module's own `config.js` instead of
+via this endpoint - `flightCredentials: { clientId, clientSecret }` alongside
+the module's other config (**not** nested inside `flights`, and never
+returned by `GET /MMM-Earth3D/config` or `set-config`-able - it's config.js-only,
+by design, since that field would otherwise round-trip a secret over this
+same unauthenticated LAN API). Applied once when the module starts/reloads,
+via the same underlying storage this endpoint uses - so it takes precedence
+over (overwrites) a previously `POST`-ed credential on the next restart.
 
 ## Reference: built-in preset and theme IDs
 
@@ -276,7 +292,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 | Field | Range/values |
 |---|---|
 | `rotationSpeed` | `0`-`100` accepted, but `25` and above all give the same (fastest) speed - ~144s/revolution. `0` = stopped. |
-| `camera.zoom` | `0`-`100` (0 = far, 100 = close) |
+| `camera.zoom` | `0`-`200` (0 = far, 100 = close, 100-200 = extended close-up range for framing something small like a flight marker or city tightly) |
 | `camera.rotate.{x,y,z}` / `camera.position.{x,y,z}` | degrees / scene units — needs tuning by eye |
 | `quality` | `low` \| `medium` \| `high` \| `ultra` |
 | `atmosphere.altitude` | roughly `0`-`0.5` |
@@ -295,7 +311,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 ## Common agent recipes
 
 **"Zoom in":** `GET /MMM-Earth3D/config`, read `config.camera.zoom`, POST
-`{"camera": {"zoom": <current + delta, clamped 0-100>}}`.
+`{"camera": {"zoom": <current + delta, clamped 0-200>}}`.
 
 **"Speed up/slow down rotation":** same pattern with `rotationSpeed`.
 

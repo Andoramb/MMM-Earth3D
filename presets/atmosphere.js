@@ -1,18 +1,6 @@
 /* global window */
 
-/*
- * Atmosphere presets for MMM-Earth3D.
- *
- * Select one via config.atmosphere.preset = "<id>", or leave
- * config.atmosphere.preset = "custom" (the default) to use the manual
- * color/altitude/opacity fields in config.js instead.
- *
- * Each entry's fields live under an "atmosphere" key matching the config
- * property they configure, so preset application is just
- * Object.assign(config.atmosphere, preset.atmosphere). The renderer only
- * uses color/altitude/opacity today, but unknown fields are safely
- * ignored - add more here later without needing a schema migration.
- */
+// Atmosphere presets - select via config.atmosphere.preset, or "custom" for the manual fields below.
 window.EARTH3D_PRESETS = window.EARTH3D_PRESETS || {};
 window.EARTH3D_PRESETS.atmosphere = [
 	{

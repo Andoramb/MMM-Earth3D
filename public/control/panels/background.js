@@ -1,8 +1,4 @@
-/*
- * Background panel (planet-env.html) - a single select combining on/off and
- * preset choice, "Disabled" as the last option (deliberately not first,
- * unlike clouds' source select - background is the newer, opt-in feature).
- */
+// Background panel (planet-env.html) - single select combining on/off and preset choice, "Disabled" last.
 
 let backgroundSelectEl;
 let backgroundHintEl;

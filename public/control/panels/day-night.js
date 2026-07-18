@@ -1,6 +1,4 @@
-/*
- * Day/Night panel (layers.html).
- */
+// Day/Night panel (layers.html).
 
 let dayNightModeEl;
 let dayNightRotateRow;

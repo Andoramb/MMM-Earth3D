@@ -1,15 +1,8 @@
 .MMM-Earth3D {
 	overflow: hidden;
-	/* MM's .region.fullscreen sets pointer-events:none and it's inherited -
-	   without overriding it here, the renderer's own occlusion check (which
-	   hit-tests via document.elementFromPoint) can never find this element or
-	   its canvas, since non-hit-testable elements are excluded from that
-	   lookup - it would always read as "occluded" and stay paused forever. */
+	/* MM's .region.fullscreen sets pointer-events:none (inherited) - without this override, elementFromPoint-based occlusion checks would never find this element and it'd stay "occluded" forever. */
 	pointer-events: auto;
-	/* Positioning context for the CSS2DRenderer overlay (city marker) that
-	   Earth3DRenderer.js's createCssRenderer() absolutely-positions on top of
-	   the WebGL canvas - .MMM-Earth3D--fullscreen below already establishes
-	   one via position:fixed, this covers the fixed-size case too. */
+	/* Positioning context for the CSS2DRenderer overlay (city marker) - covers the fixed-size case (.MMM-Earth3D--fullscreen below already has its own via position:fixed). */
 	position: relative;
 }
 

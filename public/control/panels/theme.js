@@ -1,8 +1,4 @@
-/*
- * Theme panel (home.html) - the theme picker plus its Duplicate/Save/Delete
- * management buttons. See node_helper.js's handleThemeAction for what those
- * three actually do server-side.
- */
+// Theme panel (home.html) - theme picker plus Duplicate/Save/Delete buttons (see node_helper.js's handleThemeAction).
 
 let themeEl;
 

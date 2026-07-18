@@ -1,6 +1,4 @@
-/*
- * Clouds panel (layers.html).
- */
+// Clouds panel (layers.html).
 
 let cloudsSourceEl;
 let cloudsSourceHint;

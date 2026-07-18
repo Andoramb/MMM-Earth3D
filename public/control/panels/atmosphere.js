@@ -1,6 +1,4 @@
-/*
- * Atmosphere panel (layers.html).
- */
+// Atmosphere panel (layers.html).
 
 let atmospherePresetEl;
 

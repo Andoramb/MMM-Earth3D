@@ -1,55 +1,30 @@
 /* global Log */
 import * as THREE from "./vendor/three.module.min.js";
 
-/*
- * FlightLayer
- * Renders one tracked flight's position as a small marker on the globe,
- * using three-globe's own objectsData()/objectThreeObject() layer (see
- * public/vendor/three-globe.mjs - grepped and confirmed present, though
- * unused anywhere else in this project until now) rather than a hand-rolled
- * mesh attached directly to threeGlobeObj the way CloudsLayer.mjs does -
- * this is a real data-driven layer the vendored library already supports
- * for exactly this ("moving marker on a globe") use case.
- *
- * Position updates arrive from node_helper's OpenSky poller roughly once
- * per flights.pollInterval seconds (see pushSample()) - tick() interpolates
- * smoothly between the last two samples over that same interval instead of
- * jumping on every poll, holding at the latest sample if the next poll is
- * late. Re-calling threeGlobeObj.objectsData([this.datum]) every frame with
- * the same datum object (mutated in place) is intentional, not wasteful:
- * three-globe's objects-layer digest() matches data by identity (a bound
- * property tagged directly onto the datum object - see the vendored
- * bundle's objectsLayer `update()`), so a repeat call on the same reference
- * takes the cheap onUpdateObj() reposition path, never onCreateObj() - this
- * is the same mechanism the library expects live/animated marker data to
- * use in general, not a misuse of a static-data API.
- *
- * Loaded via dynamic import(), not MM's getScripts() - see
- * Earth3DRenderer.js's ensureFlightLayer() (mirrors ensureCloudsLayer()'s
- * own comment on why: MM core's script loader only recognizes a fixed
- * extension set with no default case, so ".mjs" can silently no-op on some
- * core versions).
- */
+// FlightLayer: renders the tracked flight's marker via three-globe's objectsData()/objectThreeObject() layer; tick() interpolates smoothly between OpenSky polls (see pushSample()).
 
-// Visual size only (this isn't a real-world wingspan) - scaled against the
-// globe's own radius (100 scene units) so it stays proportionate across
-// quality-tier rebuilds, which can change the globe's tessellation but not
-// its radius.
+// Visual size only, scaled against the globe's own radius (100 scene units) so it stays proportionate across quality-tier rebuilds.
 const MARKER_SCALE_FRACTION = 0.02;
 const MARKER_COLOR = 0xff5533;
 
-// How far above the surface the marker floats, as a fraction of globe
-// radius - matches three-globe's own objectAltitude default order of
-// magnitude, just enough to keep it clear of the terrain/bump map.
+// Fraction of globe radius the marker floats above the surface, clear of the terrain/bump map.
 const MARKER_ALTITUDE = 0.02;
+
+// Hide the marker once this many poll intervals pass with no new sample, so a stuck poller doesn't leave it frozen forever.
+const STALE_AFTER_INTERVALS = 3;
+
+// Ground track since tracking started (see pathsData()/pushSample()) - capped so a long session doesn't grow the line geometry forever.
+const TRAIL_MAX_POINTS = 500;
+const TRAIL_ALTITUDE = MARKER_ALTITUDE;
+const TRAIL_COLOR_OLD = "rgba(255,85,51,0.05)";
+const TRAIL_COLOR_NEW = "rgba(255,85,51,0.85)";
+const TRAIL_STROKE = 0.35;
 
 function lerp(a, b, t) {
 	return a + (b - a) * t;
 }
 
-// Shortest-path interpolation for a wrapping angle (longitude across the
-// +-180 antimeridian, or compass heading across 0/360) - a plain lerp would
-// otherwise sweep the long way around when the two samples straddle the seam.
+// Shortest-path interpolation for a wrapping angle (longitude across +-180, or heading across 0/360).
 function lerpAngle(a, b, t, period) {
 	const diff = (((b - a + period / 2) % period) + period) % period - period / 2;
 	return a + diff * t;
@@ -64,15 +39,22 @@ export class FlightLayer {
 		this.visible = false;
 		this.hasSample = false;
 
-		// The single mutable datum three-globe's objects layer is fed - its
-		// identity never changes (see the class comment above for why that
-		// matters), only its fields, every tick().
+		// Single mutable datum fed to objectsData() - identity never changes, only its fields, every tick().
 		this.datum = { lat: 0, lng: 0, heading: 0 };
 
 		this.prevSample = null;
 		this.nextSample = null;
 		this.transitionStartMs = 0;
 		this.transitionDurationMs = 20000;
+		this.lastSampleReceivedMs = null;
+		this.stale = false;
+
+		// Ground track since tracking started - same mutable-array-identity trick as this.datum; replaced (not emptied) when the tracked flight changes.
+		this.trail = [];
+		this.trackedFlightNumber = null;
+
+		// Counteracts camera perspective so the marker reads as a constant on-screen size regardless of zoom (see Earth3DRenderer.tick()'s setDistanceScale()).
+		this.distanceScale = 1;
 	}
 
 	debugLog() {
@@ -84,20 +66,16 @@ export class FlightLayer {
 
 	buildPlaneMesh() {
 		const geometry = new THREE.ConeGeometry(this.globeRadius * MARKER_SCALE_FRACTION * 0.35, this.globeRadius * MARKER_SCALE_FRACTION, 8);
-		// ConeGeometry's apex sits along +Y by default - rotate so it points
-		// along +Z instead, matching objectRotation's yaw-about-local-Y
-		// convention below (heading 0 = nose along the reference direction
-		// objectFacesSurface's own frame treats as "north").
+		// ConeGeometry's apex sits along +Y by default - rotate to +Z to match objectRotation's yaw-about-local-Y convention below.
 		geometry.rotateX(Math.PI / 2);
 		const material = new THREE.MeshLambertMaterial({ color: MARKER_COLOR });
 		this.mesh = new THREE.Mesh(geometry, material);
-		this.mesh.visible = this.visible;
+		this.mesh.visible = this.visible && !this.stale;
+		this.mesh.scale.setScalar(this.distanceScale);
 		return this.mesh;
 	}
 
-	// Establishes the objects-layer datum/accessors once. Never calls
-	// objectsData() again from here - tick() does, every frame, with the
-	// same datum (see the class comment above).
+	// Establishes the objects-layer datum/accessors once - tick() calls objectsData() again every frame, with the same datum.
 	attachTo(threeGlobeObj) {
 		this.threeGlobeObj = threeGlobeObj;
 		threeGlobeObj
@@ -107,24 +85,45 @@ export class FlightLayer {
 			.objectAltitude(MARKER_ALTITUDE)
 			.objectRotation((d) => ({ y: d.heading || 0 }))
 			.objectThreeObject(() => this.buildPlaneMesh());
+
+		// pathColor returning a 2-entry array gives the fading-tail gradient. Not calling pathsData() here while this.trail is empty - three-globe throws on a zero-point path.
+		threeGlobeObj
+			.pathPointAlt(TRAIL_ALTITUDE)
+			.pathColor(() => [TRAIL_COLOR_OLD, TRAIL_COLOR_NEW])
+			.pathStroke(TRAIL_STROKE)
+			.pathDashGap(0)
+			.pathTransitionDuration(600);
 	}
 
 	setPollIntervalMs(ms) {
 		this.transitionDurationMs = ms;
 	}
 
-	setVisible(visible) {
-		this.visible = Boolean(visible);
+	setDistanceScale(scale) {
+		this.distanceScale = scale;
 		if (this.mesh) {
-			this.mesh.visible = this.visible;
+			this.mesh.scale.setScalar(this.distanceScale);
 		}
 	}
 
-	// data: { found, lat, lng, heading, ... } from EARTH3D_FLIGHT_POSITION
-	// (see Earth3DRenderer.js's updateFlightPosition()). found:false (no
-	// current match, or a match with no live position report) hides the
-	// marker and resets interpolation rather than leaving it parked at a
-	// stale last-known spot.
+	setVisible(visible) {
+		const wasVisible = this.visible;
+		this.visible = Boolean(visible);
+		this.syncMeshVisibility();
+		// Trail visibility only follows this.visible, not staleness - a live-signal gap shouldn't wipe out history already drawn.
+		if (this.visible !== wasVisible && this.threeGlobeObj) {
+			this.threeGlobeObj.pathsData(this.visible && this.trail.length ? [this.trail] : []);
+		}
+	}
+
+	// Marker visibility is `visible` AND "not currently stale" - either alone hides it.
+	syncMeshVisibility() {
+		if (this.mesh) {
+			this.mesh.visible = this.visible && !this.stale;
+		}
+	}
+
+	// data: { found, lat, lng, heading, ... } from EARTH3D_FLIGHT_POSITION - found:false hides the marker and resets interpolation.
 	pushSample(data) {
 		if (!data || !data.found || data.lat == null || data.lng == null) {
 			this.setVisible(false);
@@ -135,22 +134,39 @@ export class FlightLayer {
 		}
 
 		const heading = data.heading || 0;
-		// First-ever sample: nothing to interpolate FROM yet, snap directly
-		// instead of easing in from (0,0).
+		// First-ever sample: snap directly instead of easing in from (0,0).
 		this.prevSample = this.nextSample
 			? { lat: this.datum.lat, lng: this.datum.lng, heading: this.datum.heading }
 			: { lat: data.lat, lng: data.lng, heading };
 		this.nextSample = { lat: data.lat, lng: data.lng, heading };
 		this.transitionStartMs = performance.now();
+		this.lastSampleReceivedMs = this.transitionStartMs;
+		this.stale = false;
 		this.setVisible(true);
+		this.pushTrailPoint(data);
 	}
 
-	// Returns the currently-displayed (interpolated) lat/lng, or null if no
-	// sample has arrived yet - consumed by Earth3DRenderer.tick() for the
-	// flights.track camera-centering blend, so the marker and the "centered
-	// on camera" point are always exactly the same spot.
+	// Appends to the ground track, starting a fresh trail array when the tracked flight changes; skips duplicate points (OpenSky repeats stale state vectors).
+	pushTrailPoint(data) {
+		if (data.flightNumber !== this.trackedFlightNumber) {
+			this.trackedFlightNumber = data.flightNumber;
+			this.trail = [];
+		}
+		const last = this.trail[this.trail.length - 1];
+		if (!last || last[0] !== data.lat || last[1] !== data.lng) {
+			this.trail.push([data.lat, data.lng]);
+			if (this.trail.length > TRAIL_MAX_POINTS) {
+				this.trail.shift();
+			}
+		}
+		if (this.threeGlobeObj) {
+			this.threeGlobeObj.pathsData([this.trail]);
+		}
+	}
+
+	// Currently-displayed (interpolated) lat/lng, or null - consumed by Earth3DRenderer.tick()'s flights.track camera-centering blend.
 	getCurrentPosition() {
-		if (!this.hasSample) {
+		if (!this.hasSample || this.stale) {
 			return null;
 		}
 		return { lat: this.datum.lat, lng: this.datum.lng };
@@ -161,6 +177,14 @@ export class FlightLayer {
 			return;
 		}
 		const now = performance.now();
+
+		const staleNow = this.lastSampleReceivedMs !== null
+			&& (now - this.lastSampleReceivedMs) > this.transitionDurationMs * STALE_AFTER_INTERVALS;
+		if (staleNow !== this.stale) {
+			this.stale = staleNow;
+			this.syncMeshVisibility();
+		}
+
 		const elapsed = now - this.transitionStartMs;
 		const alpha = this.transitionDurationMs > 0 ? Math.min(elapsed / this.transitionDurationMs, 1) : 1;
 
@@ -175,12 +199,15 @@ export class FlightLayer {
 	destroy() {
 		if (this.threeGlobeObj) {
 			this.threeGlobeObj.objectsData([]);
+			this.threeGlobeObj.pathsData([]);
 		}
 		this.threeGlobeObj = null;
 		this.mesh = null;
 		this.hasSample = false;
 		this.prevSample = null;
 		this.nextSample = null;
+		this.trail = [];
+		this.trackedFlightNumber = null;
 	}
 }
 window.FlightLayer = FlightLayer;

@@ -1,43 +1,20 @@
 /* global MMMEarth3DSunCalc, Log */
 
-/*
- * EarthCompositor
- * Builds the day+night texture handed to three-globe's globeImageUrl() by
- * layering them on an offscreen canvas, then exporting a data URL. This
- * deliberately keeps day/night a simple 2D image pipeline, independent of
- * the render loop - a flat terminator blend doesn't need real 3D geometry,
- * just per-pixel math, so there's no reason to make it a shader.
- *
- * Clouds are handled differently: they're a real second sphere (see
- * CloudsLayer.mjs) for an independently-rotating, slightly-larger layer,
- * which genuinely does need Three.js geometry - but EarthCompositor still
- * owns *fetching* the clouds image (static/GIBS/fallback/poll), handing the
- * loaded image off via onCloudsImage() rather than drawing it itself.
- *
- * Night-side darkening for clouds is NOT baked into that texture (see
- * updateCloudNightMask() below for why) - it's a small standalone alpha mask
- * handed to CloudsLayer.mjs, which samples it in a shader on the clouds' own
- * mesh, correcting for that mesh's independent rotation.
- */
+// EarthCompositor: builds the day+night texture for three-globe's globeImageUrl() on an offscreen canvas; also fetches (not draws) the clouds image and its night-mask for CloudsLayer.mjs to shade.
 
-// Day/night terminator recompute interval. The terminator moves ~0.25
-// deg/minute, imperceptibly slow, so this only needs to be a few minutes.
+// Terminator moves ~0.25deg/minute, imperceptibly slow, so this only needs to be a few minutes.
 const DAY_NIGHT_RECOMPUTE_MS = 5 * 60 * 1000;
 
-// Low-res grid for the day/night mask - the terminator is a smooth curve,
-// so computing it densely and upscaling looks identical to full-res but is
-// far cheaper (a full-res 8k grid would be 33M SunCalc calls per recompute).
+// Low-res grid for the day/night mask - a smooth curve computed densely and upscaled looks identical to full-res but far cheaper.
 const MASK_WIDTH = 180;
 const MASK_HEIGHT = 90;
 
-// Twilight band half-width in degrees of solar altitude, roughly matching
-// civil twilight - gives a soft terminator edge instead of a hard line.
+// Twilight band half-width in degrees of solar altitude, roughly matching civil twilight, for a soft terminator edge.
 const TWILIGHT_DEG = 6;
 
 const CLOUDS_NIGHT_DARKEN = 0.85;
 
-// NASA GIBS' underlying satellite composite only updates once per day (see
-// README), so polling more often than this just re-requests the same image.
+// NASA GIBS' satellite composite only updates once per day, so polling more often just re-requests the same image.
 const CLOUDS_POLL_MS = 24 * 60 * 60 * 1000;
 
 class EarthCompositor {
@@ -75,10 +52,7 @@ class EarthCompositor {
 		Log.info.apply(Log, ["[MMM-Earth3D:EarthCompositor]"].concat(Array.prototype.slice.call(arguments)));
 	}
 
-	// Set once by Earth3DRenderer as soon as it hears back from node_helper
-	// (see MMM-Earth3D.js's EARTH3D_SERVER_TIME handler) - realtime dayNight
-	// should reflect the clock of the machine actually running MagicMirror,
-	// not whichever device's browser happens to be viewing the page.
+	// Set once Earth3DRenderer hears back from node_helper - realtime dayNight should reflect the MagicMirror machine's clock, not the viewing browser's.
 	setServerTimeOffset(offsetMs) {
 		this.debugLog("setServerTimeOffset", offsetMs);
 		this.serverTimeOffsetMs = offsetMs;
@@ -88,13 +62,7 @@ class EarthCompositor {
 	loadImage(url) {
 		return new Promise((resolve, reject) => {
 			const img = new Image();
-			// Only needed for genuinely cross-origin sources (e.g. NASA GIBS) -
-			// setting it unconditionally, even on same-origin vendored assets
-			// like earth-night.jpg, has caused canvas-tainting on machines that
-			// had cached an earlier, non-CORS response for the exact same URL
-			// (some browsers reuse that cache entry without re-validating CORS
-			// against the crossorigin-tagged request, silently tainting the
-			// canvas this feeds into - see recompute()'s toDataURL() below).
+			// Only for genuinely cross-origin sources - setting it unconditionally has caused canvas-tainting on machines with a stale cached non-CORS response for the same URL.
 			if (isCrossOrigin(url)) {
 				img.crossOrigin = "anonymous";
 			}
@@ -140,9 +108,7 @@ class EarthCompositor {
 		this.dayNightTimer = setInterval(() => this.recompute(), DAY_NIGHT_RECOMPUTE_MS);
 	}
 
-	// Called on init and whenever config.clouds changes. Loads the right
-	// clouds image (or does nothing if disabled) and (re)starts the polling
-	// schedule for realtime sources.
+	// Called on init and whenever config.clouds changes - loads the right clouds image and (re)starts polling for realtime sources.
 	async applyCloudsConfig() {
 		clearTimeout(this.cloudsTimer);
 
@@ -162,8 +128,7 @@ class EarthCompositor {
 		try {
 			this.cloudsRawImage = await this.loadImage(url);
 		} catch (err) {
-			// GIBS is an external service and can fail/timeout - fall back to
-			// the vendored static texture rather than showing nothing.
+			// GIBS can fail/timeout - fall back to the vendored static texture rather than showing nothing.
 			Log.warn("MMM-Earth3D: clouds image failed to load (" + err.message + "), falling back to static clouds");
 			try {
 				this.cloudsRawImage = await this.loadImage(this.assetPath("img/clouds-static.png"));
@@ -176,9 +141,7 @@ class EarthCompositor {
 		this.updateCloudNightMask(null);
 	}
 
-	// NASA GIBS' Worldview Snapshot API. Note: the underlying satellite
-	// composite only updates once per day (see README) - polling more often
-	// just re-requests the same image until that daily update lands.
+	// NASA GIBS' Worldview Snapshot API - the underlying composite only updates once per day.
 	buildGibsUrl() {
 		const date = new Date().toISOString().slice(0, 10);
 		return "https://wvs.earthdata.nasa.gov/api/v1/snapshot"
@@ -202,8 +165,7 @@ class EarthCompositor {
 		this.ctx.clearRect(0, 0, width, height);
 		this.ctx.drawImage(this.dayImage, 0, 0, width, height);
 
-		// Computed once and shared with updateCloudNightMask() below so
-		// toggling/polling day-night doesn't run the SunCalc grid twice.
+		// Computed once and shared with updateCloudNightMask() so toggling/polling day-night doesn't run the SunCalc grid twice.
 		const dayNightEnabled = this.config.dayNight.mode !== "disabled";
 		const grid = dayNightEnabled ? this.computeAltitudeGrid() : null;
 		this.debugLog("recompute", { mode: this.config.dayNight.mode, dayNightEnabled, width, height, hasNightImage: Boolean(this.nightImage) });
@@ -215,11 +177,7 @@ class EarthCompositor {
 			this.debugLog("recompute: dayNight enabled but night image not loaded yet - globe texture will show day-only this pass");
 		}
 
-		// A tainted canvas (e.g. one of the drawn images ended up considered
-		// cross-origin - see loadImage()'s crossOrigin handling above) makes
-		// toDataURL() throw; surface that clearly instead of letting it
-		// silently abort recompute() with no visible day/night change and no
-		// obvious error.
+		// A tainted canvas makes toDataURL() throw - surface that clearly instead of silently aborting with no visible error.
 		let dataUrl;
 		try {
 			dataUrl = this.canvas.toDataURL("image/jpeg", 0.85);
@@ -233,14 +191,11 @@ class EarthCompositor {
 		this.updateCloudNightMask(grid);
 	}
 
-	// Grid of solar altitude (degrees), one entry per mask pixel - shared by
-	// drawNightOverlay (globe night-lights alpha) and buildCloudNightMask
-	// (clouds darkening) so both derive from the exact same terminator.
+	// Grid of solar altitude (degrees), one entry per mask pixel - shared by drawNightOverlay and buildCloudNightMask so both derive from the same terminator.
 	computeAltitudeGrid() {
 		const mode = this.config.dayNight.mode;
 		const now = new Date(Date.now() + this.serverTimeOffsetMs);
-		// custom mode: fixed subsolar point at the equator, longitude set by
-		// config.dayNight.rotate (0-360 -> -180..180) - no real astronomy.
+		// custom mode: fixed subsolar point at the equator, longitude from config.dayNight.rotate (0-360 -> -180..180) - no real astronomy.
 		const customLng = ((this.config.dayNight.rotate % 360) + 360) % 360 - 180;
 
 		const grid = new Float32Array(MASK_WIDTH * MASK_HEIGHT);
@@ -250,14 +205,7 @@ class EarthCompositor {
 			const lat = 90 - (y / (MASK_HEIGHT - 1)) * 180;
 			for (let x = 0; x < MASK_WIDTH; x++) {
 				const lng = (x / (MASK_WIDTH - 1)) * 360 - 180;
-				// Both branches return degrees - this vendored SunCalc build
-				// (exposed as window.MMMEarth3DSunCalc, not window.SunCalc -
-				// see public/vendor/suncalc.js's header comment for why: MM
-				// core ships different suncalc major versions with different
-				// units across different core releases via its own
-				// window.SunCalc, so this module doesn't depend on that)
-				// divides by its internal `rad` (= PI/180) constant before
-				// returning altitude, i.e. converts to degrees itself.
+				// Both branches return degrees - the vendored SunCalc (window.MMMEarth3DSunCalc, not MM core's own window.SunCalc) converts internally.
 				const altitudeDeg = mode === "realtime"
 					? MMMEarth3DSunCalc.getPosition(now, lat, lng).altitude
 					: solarAltitudeDeg(lat, lng, 0, customLng);
@@ -266,10 +214,7 @@ class EarthCompositor {
 				if (altitudeDeg > maxAlt) maxAlt = altitudeDeg;
 			}
 		}
-		// If min/max don't straddle +-TWILIGHT_DEG, every point on the grid
-		// is on the same side of the terminator - the composited texture
-		// will legitimately show no visible day/night split at all, even
-		// though the pipeline itself is working correctly.
+		// If min/max don't straddle +-TWILIGHT_DEG, the whole grid is on one side of the terminator - a legitimate no-visible-split result, not a bug.
 		this.debugLog("computeAltitudeGrid", {
 			mode,
 			now: now.toISOString(),
@@ -304,17 +249,7 @@ class EarthCompositor {
 		this.ctx.drawImage(this.nightScratchCanvas, 0, 0);
 	}
 
-	// Hands CloudsLayer.mjs a small black/transparent alpha mask (or null) to
-	// sample in a shader on the clouds' own mesh - deliberately NOT baked as
-	// darkened pixels into the clouds texture itself, and NOT drawn via a
-	// second mesh either (both tried first): CloudsLayer spins its mesh
-	// independently for a parallax effect, so anything painted into *its*
-	// texture (or a second mesh baked to match it) drifts out of alignment
-	// with the true terminator as it rotates, or - for a second mesh
-	// specifically - z-fights with the clouds mesh it's layered against.
-	// CloudsLayer's shader corrects for that rotation itself when sampling
-	// this mask, so it stays correctly aligned with the real day/night line
-	// - realtime or custom - no matter how the clouds drift.
+	// Hands CloudsLayer.mjs a small black/transparent alpha mask (or null) to shader-sample on its own mesh - not baked into the clouds texture or a second mesh, since CloudsLayer's independent parallax spin would drift either out of alignment (or z-fight, for a second mesh); its shader corrects for that rotation itself.
 	updateCloudNightMask(grid) {
 		if (this.destroyed || !this.cloudsRawImage) {
 			this.debugLog("updateCloudNightMask: skipped", { destroyed: this.destroyed, hasCloudsImage: Boolean(this.cloudsRawImage) });
@@ -330,8 +265,7 @@ class EarthCompositor {
 		this.onCloudsNightMask(this.cloudMaskCanvas);
 	}
 
-	// Black, alpha = nightAlpha * CLOUDS_NIGHT_DARKEN - transparent on the
-	// day side, fading to a translucent black shell on the night side.
+	// Black, alpha = nightAlpha * CLOUDS_NIGHT_DARKEN - transparent by day, fading to translucent black by night.
 	buildCloudNightMask(grid) {
 		const ctx = this.cloudMaskCanvas.getContext("2d");
 		const imageData = ctx.createImageData(MASK_WIDTH, MASK_HEIGHT);
@@ -360,8 +294,7 @@ function isCrossOrigin(url) {
 	}
 }
 
-// Standard spherical solar-altitude formula (equivalent to 90 minus the
-// great-circle angular distance to the subsolar point).
+// Standard spherical solar-altitude formula (90 minus the great-circle angular distance to the subsolar point).
 function solarAltitudeDeg(lat, lng, subsolarLat, subsolarLng) {
 	const toRad = Math.PI / 180;
 	const sinAlt = Math.sin(lat * toRad) * Math.sin(subsolarLat * toRad)
@@ -369,8 +302,7 @@ function solarAltitudeDeg(lat, lng, subsolarLat, subsolarLng) {
 	return Math.asin(Math.max(-1, Math.min(1, sinAlt))) / toRad;
 }
 
-// 0 = full day (transparent night layer) .. 255 = full night (opaque),
-// smoothly blended across the twilight band.
+// 0 = full day (transparent) .. 255 = full night (opaque), blended across the twilight band.
 function nightAlpha(altitudeDeg) {
 	if (altitudeDeg >= TWILIGHT_DEG) {
 		return 0;

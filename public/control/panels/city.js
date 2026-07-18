@@ -1,11 +1,4 @@
-/*
- * City panel (layers.html) - a text field that sets config.city.name, a
- * ";"-separated list of one or more names (the module resolves each against
- * presets/cities.js client-side, in the browser tab actually running the
- * globe - see MMM-Earth3D.js's findCity()/resolveCity()) plus a button that
- * recenters the globe on the first configured city, without touching the
- * name field.
- */
+// City panel (layers.html) - text field sets config.city.name, a ";"-separated list of names; button recenters on the first configured city.
 
 let cityNameEl;
 let cityFoundEl;
@@ -16,9 +9,7 @@ export function init (ctx) {
 	cityFoundEl = document.getElementById("cityFound");
 	cityCenterBtn = document.getElementById("cityCenterBtn");
 
-	// "change" (fires on blur/Enter), not "input" - looking a name up and
-	// warning on no match makes sense once the user is done typing, not on
-	// every keystroke of a partial name.
+	// "change" not "input" - look up the name once typing is done, not on every keystroke.
 	cityNameEl.addEventListener("change", () => {
 		ctx.send({ city: { name: cityNameEl.value } }).then(ctx.refetch);
 	});

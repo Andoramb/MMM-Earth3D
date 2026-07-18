@@ -1,15 +1,6 @@
 /* global window */
 
-/*
- * Camera presets for MMM-Earth3D.
- *
- * Select one via config.camera.preset = "<id>", or leave
- * config.camera.preset = "custom" (the default) to use the manual
- * zoom/rotate/position fields in config.js instead.
- *
- * Add your own entries here - each needs a unique string id. Editable
- * live via public/control.html or the EARTH3D_SET_CONFIG notification.
- */
+// Camera presets - select via config.camera.preset, or "custom" for the manual zoom/rotate/position fields.
 window.EARTH3D_PRESETS = window.EARTH3D_PRESETS || {};
 window.EARTH3D_PRESETS.camera = [
 	{

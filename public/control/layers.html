@@ -87,6 +87,8 @@
 		</label>
 	</fieldset>
 
+	<!-- Flight tracking UI disabled, not removed - uncomment to bring it back (core.js only loads panels/flights.js when this markup is present). -->
+	<!--
 	<h2>Flight</h2>
 	<fieldset data-panel="flights">
 		<legend>Live tracking</legend>
@@ -106,27 +108,7 @@
 			Enter a flight number above to start tracking.
 		</p>
 	</fieldset>
-	<fieldset data-panel="flights">
-		<legend>OpenSky API access</legend>
-		<label>
-			<span class="name">Client ID</span>
-			<input type="text" id="flightClientId" placeholder="optional">
-		</label>
-		<label>
-			<span class="name">Secret</span>
-			<input type="text" id="flightClientSecret" placeholder="optional">
-		</label>
-		<div class="theme-actions">
-			<button type="button" id="flightSaveCredentialsBtn">Save credentials</button>
-			<button type="button" id="flightClearCredentialsBtn">Clear saved credentials</button>
-		</div>
-		<p class="intro" id="flightCredentialsHint" style="margin:6px 0 0;">
-			Anonymous OpenSky access (no signup) allows 400 requests/day -
-			plenty for occasional tracking. A free OpenSky account's OAuth2
-			client credentials raise that to 4000/day, with automatic
-			fallback to anonymous if they ever fail.
-		</p>
-	</fieldset>
+	-->
 
 	<h2>City</h2>
 	<fieldset data-panel="city">

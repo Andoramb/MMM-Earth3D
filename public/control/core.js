@@ -1,29 +1,4 @@
-/*
- * Shared core for the MMM-Earth3D control panel (public/control/*.html).
- *
- * Each page (home.html, planet-env.html, layers.html) marks the fieldsets it
- * contains with a `data-panel="<name>"` attribute. On load, this file scans
- * the page for those attributes, dynamically imports the matching module
- * from panels/<name>.js, and mounts it - so a page only pays for the panels
- * it actually declares, and adding a new config field to a page is just
- * adding a data-panel block to its HTML plus a panels/<name>.js file, no
- * central registry to edit. Real ES modules throughout (this file and every
- * panel), not classic scripts - control.html is fetched directly by a
- * browser hitting the control panel URL, not loaded through MagicMirror's
- * own module script loader (see MMM-Earth3D.js's getScripts()), so there's
- * no extension-sniffing constraint here.
- *
- * A panel module exports:
- *   init(ctx)              - wire up DOM event listeners, once, at load
- *   applyConfig(config, ctx) - reflect the module's resolved config onto the DOM
- * Both are optional. Panels query the DOM directly by element id (ids are
- * unique across a page, same as the control panel's original monolithic
- * script) rather than being scoped to their data-panel container - a single
- * panel name may legitimately appear on more than one container in a page
- * (see planet-env.html's "camera" panel, spanning the Camera and Position
- * fieldsets), so containers are only used to *discover* which panels a page
- * needs, not to scope their queries.
- */
+// Shared core for the control panel - scans each page for [data-panel="<name>"], dynamically imports panels/<name>.js, and mounts it (exports: init(ctx), applyConfig(config, ctx)).
 
 // Mirrors MMM-Earth3D.js's `defaults` - keep in sync if those change.
 export const MODULE_DEFAULTS = {
@@ -43,9 +18,7 @@ function setStatus (message, isError) {
 
 let debounceTimer = null;
 
-// Returns a Promise so callers that need to know the config actually
-// settled (theme switches, the theme-management buttons) can chain
-// .then(refetch) - plain slider drags just fire-and-forget it.
+// Returns a Promise so callers that need it can chain .then(refetch) - plain slider drags just fire-and-forget it.
 function send (payload) {
 	clearTimeout(debounceTimer);
 	return new Promise((resolve, reject) => {
@@ -89,14 +62,7 @@ function postThemeAction (body) {
 		.catch((err) => setStatus(err.message, true));
 }
 
-// --- Resolved config readback --------------------------------------
-// The actual field-by-field resolution (theme -> preset -> override)
-// happens client-side in MMM-Earth3D.js, in the browser tab running the
-// real module - this page has no way to compute it itself, so instead it
-// asks node_helper (GET /MMM-Earth3D/config), which relays the question
-// to that module instance and answers with whatever it reports back: both
-// the fully-resolved config and the sparse userOverrides (the "current
-// non-default changes" the theme panel's Save button captures).
+// --- Resolved config readback: asks node_helper (GET /MMM-Earth3D/config), which relays to the real module instance for the actual resolution ---
 
 let currentConfig = null;
 let currentOverrides = {};
@@ -140,9 +106,7 @@ function setSliderValue (id, value) {
 	}
 }
 
-// firstId pulls that preset (e.g. an atmosphere "Disabled" entry) ahead of
-// the "Custom" option, since off/on is a more natural first choice than
-// jumping straight to manual tuning.
+// firstId pulls that preset (e.g. an atmosphere "Disabled" entry) ahead of the "Custom" option.
 function populatePresetSelect (selectEl, presets, includeCustom, firstId) {
 	while (selectEl.firstChild) {
 		selectEl.removeChild(selectEl.firstChild);
@@ -175,21 +139,11 @@ function findPreset (assetType, id) {
 	return list.find((entry) => entry.id === id);
 }
 
-// Built-in (presets/themes.js) and user-created (presets/themes-user.js,
-// gitignored - see node_helper.js) themes are one combined list; every page
-// loads both preset script tags (even pages with no theme dropdown of their
-// own) purely so this list - and resolveThemeValue() below - is available
-// for reset (↺) buttons to consult the active theme.
+// Built-in and user-created (gitignored presets/themes-user.js) themes as one combined list, for resolveThemeValue() below and reset (↺) buttons.
 const themes = (window.EARTH3D_THEMES || []).concat(window.EARTH3D_USER_THEMES || []);
 const defaultThemeIds = new Set((window.EARTH3D_THEMES || []).map((theme) => theme.id));
 
-// Resolves what a field's value would be WITHOUT any manual override: this
-// asset's own preset (if selected) -> the active theme's choice for this
-// asset -> the hardcoded module default. Used to draw the reset buttons'
-// target values. Reads the active theme off the last-fetched resolved
-// config (currentConfig.theme) rather than a DOM element, since - unlike
-// the old single-page layout - the theme dropdown may live on a different
-// page entirely from the reset button being clicked.
+// Resolves a field's value without any manual override: preset -> active theme -> hardcoded default. Feeds the reset (↺) buttons' target values.
 function resolveThemeValue (assetType, presetSelectEl, field, deepKey) {
 	const presetId = presetSelectEl.value;
 	if (presetId !== "custom") {
@@ -216,9 +170,7 @@ function resolveThemeValue (assetType, presetSelectEl, field, deepKey) {
 	return deepKey ? fallback[deepKey][field] : fallback[field];
 }
 
-// --- Panel context --------------------------------------------------
-// Passed to every panel module's init()/applyConfig() - the same shared
-// surface a single monolithic script used to close over directly.
+// --- Panel context: passed to every panel module's init()/applyConfig() ---
 
 const ctx = {
 	send,

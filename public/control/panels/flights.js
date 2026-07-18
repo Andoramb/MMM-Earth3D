@@ -1,16 +1,4 @@
-/*
- * Flight panel (layers.html) - flight number, Track toggle, poll interval,
- * and the optional OpenSky API credentials, backed by node_helper.js's
- * flight tracker (lib/flightTracker.js).
- *
- * Unlike every other panel, this one also polls its own small status
- * endpoint directly (GET /MMM-Earth3D/flights/status) rather than relying
- * purely on core.js's fetchResolvedConfig()/applyConfig() - flights.* is
- * deliberately not part of theme/override resolution (see defaults.flights'
- * own comment in MMM-Earth3D.js), and node_helper owns the actual poll
- * result (found/not found, last error, which API tier answered), none of
- * which lives in the module's resolved config at all.
- */
+// Flight panel (layers.html, disabled - see layers.html) - flight number, Track, poll interval; also polls GET /MMM-Earth3D/flights/status directly for status text.
 
 const STATUS_POLL_MS = 3000;
 const FLIGHT_NUMBER_DEBOUNCE_MS = 500;
@@ -18,9 +6,6 @@ const FLIGHT_NUMBER_DEBOUNCE_MS = 500;
 let flightNumberEl;
 let flightTrackEl;
 let flightStatusHint;
-let flightClientIdEl;
-let flightClientSecretEl;
-let flightCredentialsHint;
 
 function describeStatus (status) {
 	if (!status.enabled || !status.flightNumber) {
@@ -51,29 +36,12 @@ function refreshStatus () {
 		.catch(() => {});
 }
 
-function refreshCredentialsHint () {
-	fetch("/MMM-Earth3D/flights/credentials")
-		.then((res) => res.json())
-		.then((data) => {
-			flightCredentialsHint.textContent = data.configured
-				? "Using your saved OpenSky credentials (4000 requests/day, falls back to anonymous automatically if they ever fail)."
-				: "No OpenSky credentials saved - using anonymous access (400 requests/day).";
-		})
-		.catch(() => {});
-}
-
 export function init (ctx) {
 	flightNumberEl = document.getElementById("flightNumber");
 	flightTrackEl = document.getElementById("flightTrack");
 	flightStatusHint = document.getElementById("flightStatusHint");
-	flightClientIdEl = document.getElementById("flightClientId");
-	flightClientSecretEl = document.getElementById("flightClientSecret");
-	flightCredentialsHint = document.getElementById("flightCredentialsHint");
 
-	// A plain debounce (not ctx.send's own - that one just batches rapid
-	// calls into the last-wins payload, which is fine, but a flight number
-	// is typed character-by-character and shouldn't fire a request per
-	// keystroke) before enabling/renaming the tracked flight.
+	// A plain debounce (not ctx.send's own) so typing a flight number doesn't fire a request per keystroke.
 	let debounceTimer = null;
 	flightNumberEl.addEventListener("input", () => {
 		clearTimeout(debounceTimer);
@@ -89,48 +57,6 @@ export function init (ctx) {
 
 	ctx.bindSlider("flightPollInterval", (value) => ctx.send({ flights: { pollInterval: value } }));
 
-	document.getElementById("flightSaveCredentialsBtn").addEventListener("click", () => {
-		const clientId = flightClientIdEl.value.trim();
-		const clientSecret = flightClientSecretEl.value.trim();
-		if (!clientId || !clientSecret) {
-			ctx.setStatus("Client ID and secret are both required", true);
-			return;
-		}
-		fetch("/MMM-Earth3D/flights/credentials", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ clientId, clientSecret })
-		})
-			.then((res) => res.json().then((data) => {
-				if (!res.ok) {
-					throw new Error(data.error || ("Request failed (" + res.status + ")"));
-				}
-				return data;
-			}))
-			.then(() => {
-				flightClientSecretEl.value = "";
-				ctx.setStatus("OpenSky credentials saved");
-				refreshCredentialsHint();
-			})
-			.catch((err) => ctx.setStatus(err.message, true));
-	});
-
-	document.getElementById("flightClearCredentialsBtn").addEventListener("click", () => {
-		fetch("/MMM-Earth3D/flights/credentials", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ clear: true })
-		})
-			.then(() => {
-				flightClientIdEl.value = "";
-				flightClientSecretEl.value = "";
-				ctx.setStatus("OpenSky credentials cleared");
-				refreshCredentialsHint();
-			})
-			.catch((err) => ctx.setStatus(err.message, true));
-	});
-
-	refreshCredentialsHint();
 	refreshStatus();
 	setInterval(refreshStatus, STATUS_POLL_MS);
 }

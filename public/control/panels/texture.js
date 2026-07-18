@@ -1,8 +1,4 @@
-/*
- * Texture + quality panel (planet-env.html, "Planet" fieldset). Quality is
- * a separate top-level scalar, not part of config.texture, but shares this
- * fieldset in the UI since both affect how the planet's surface renders.
- */
+// Texture + quality panel (planet-env.html, "Planet" fieldset) - quality is a separate top-level scalar sharing this fieldset.
 
 let texturePresetEl;
 

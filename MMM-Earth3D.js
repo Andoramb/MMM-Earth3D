@@ -1,16 +1,10 @@
 /* global Module, Earth3DRenderer, window */
 
-/*
- * MMM-Earth3D
- * A MagicMirror module for a rotating 3D Earth (three-globe/Three.js).
- */
+// MMM-Earth3D: a MagicMirror module for a rotating 3D Earth (three-globe/Three.js).
 Module.register("MMM-Earth3D", {
 	// Default module config.
 	defaults: {
-		// null = auto: fills the screen on a fullscreen_* position, or falls
-		// back to 500x500 (with a warning) on a normal position, which can't
-		// auto-size a WebGL canvas from flow layout alone. Set both to a
-		// number to force a fixed pixel size regardless of position.
+		// null = auto: fills the screen on a fullscreen_* position, or falls back to 500x500 on a normal position. Set both to force a fixed pixel size.
 		width: null,
 		height: null,
 
@@ -57,13 +51,7 @@ Module.register("MMM-Earth3D", {
 			opacity: 0.8 // 0-1
 		},
 
-		// Session/operational, not a visual look - unlike every field above,
-		// this one is deliberately excluded from theme switching (see
-		// applyLiveConfig()'s theme-change field-clearing list) and from
-		// "Save into theme" (see node_helper.js's saveThemeOverrides()) -
-		// see skills/mmm-earth3d-control/SKILL.md for the full rationale.
-		// node_helper.js's OpenSky poller (lib/flightTracker.js) learns this
-		// over EARTH3D_FLIGHTS_STATE, not by reading config.js itself.
+		// Session/operational, not a visual look - excluded from theme switching and "Save into theme" (see SKILL.md); node_helper's poller learns this over EARTH3D_FLIGHTS_STATE.
 		flights: {
 			enabled: false, // shows the tracked flight's marker and drives node_helper's OpenSky polling
 			flightNumber: "", // IATA flight number, e.g. "UA123" - resolved to an OpenSky callsign server-side (see lib/iataToIcaoAirlines.js)
@@ -75,15 +63,13 @@ Module.register("MMM-Earth3D", {
 			name: "" // ";"-separated list matched case-insensitively against presets/cities.js by findCity() below, one marker per name. Empty = no marker.
 		},
 
+		// OpenSky OAuth2 client credentials for the registered tier - config.js-only, kept out of `flights`/`this.config` entirely since the latter is echoed verbatim over the LAN and persisted into theme files. Set directly: flightCredentials: { clientId, clientSecret } (or manage live via POST /MMM-Earth3D/flights/credentials - config.js wins on restart if both are used).
+		flightCredentials: null,
+
 		debug: false // logs every live-config notification and apply*() call to the browser console via Log.info
 	},
 
-	// Every default field above (rotationSpeed, quality, atmosphere,
-	// texture, camera, dayNight, clouds) can also be set directly inside a
-	// presets/themes.js entry - a theme isn't limited to referencing other
-	// presets by id, it can supply literal values for anything, and any
-	// field it doesn't mention just falls back to its normal preset/default.
-	// See "Custom themes" in README.md.
+	// Every default field above can also be set directly inside a presets/themes.js entry (id reference or literal values) - see "Custom themes" in README.md.
 
 	renderer: null,
 	userOverrides: null,
@@ -99,23 +85,10 @@ Module.register("MMM-Earth3D", {
 	start: function () {
 		Log.info("Starting module: " + this.name);
 
-		// MM's per-module socket (module.js's socket()) is created lazily and
-		// ONLY by calling sendSocketNotification() - since this module never
-		// sends anything to its node_helper (only receives EARTH3D_SET_CONFIG
-		// from it), that lazy socket was never created, so the node_helper's
-		// emit() went to a namespace with zero connected clients: no error on
-		// either side, the update just silently never arrived. Calling
-		// socket() directly establishes the connection (and registers
-		// socketNotificationReceived as its callback) without needing to
-		// actually send anything.
+		// MM's per-module socket is lazily created only by sendSocketNotification() - calling socket() directly establishes it so node_helper's un-prompted emits actually have a listener.
 		this.socket();
 
-		// Asks node_helper (running on the actual MagicMirror host) for its
-		// clock, rather than trusting whatever machine's browser happens to be
-		// viewing this page - realtime dayNight needs the real world clock at
-		// the mirror, not at a laptop that opened the server remotely with a
-		// different system time/timezone. this.serverTimeOffsetMs stays 0
-		// (i.e. "trust this browser's own clock") until the reply arrives.
+		// Asks node_helper (on the actual MagicMirror host) for its clock, not whatever machine's browser is viewing this page - stays 0 (trust this browser) until the reply arrives.
 		this.serverTimeOffsetMs = 0;
 		this.sendSocketNotification("EARTH3D_REQUEST_SERVER_TIME");
 
@@ -126,49 +99,20 @@ Module.register("MMM-Earth3D", {
 		// particle-based (starfield: true, see presets/backgrounds.js/StarfieldLayer.mjs).
 		window.EARTH3D_PRESETS.background = this.validatePresets(window.EARTH3D_PRESETS.background, "background", []);
 		window.EARTH3D_PRESETS.camera = this.validatePresets(window.EARTH3D_PRESETS.camera, "camera", ["zoom", "rotate", "position"]);
-		// User-created themes (presets/themes-user.js, gitignored - see
-		// node_helper.js) are merged in after the shipped defaults; from here
-		// on the module treats them as one combined list.
+		// User-created themes (gitignored presets/themes-user.js) are merged in after the shipped defaults into one combined list.
 		window.EARTH3D_THEMES = this.validateThemes((window.EARTH3D_THEMES || []).concat(window.EARTH3D_USER_THEMES || []));
 
 		this.captureUserOverrides();
 		this.resolveConfig();
 		this.sendFlightsState();
+		this.sendFlightCredentials();
 	},
 
 	getStyles: function () {
 		return [this.file("css/MMM-Earth3D.css")];
 	},
 
-	// public/CloudsLayer.mjs, public/vendor/three.module.min.js/three.core.min.js,
-	// public/vendor/three-globe.mjs, and public/vendor/OrbitControls.js are
-	// deliberately NOT listed here - they're all ES modules (need real
-	// `import`/`export`) and MM core's getScripts() loader only recognizes a
-	// fixed set of extensions that varies by core version ("js"/"css" on
-	// some, "js"/"css"/"mjs" on others, no default case either way), so an
-	// unrecognized extension silently no-ops with no error. Earth3DRenderer.js
-	// loads all of them itself via dynamic import(), which works identically
-	// on every MM core version.
-	// NOTE: do NOT append a "?v=" cache-buster to any of these URLs (tried,
-	// reverted) - MM core's own js/loader.js determines script vs style
-	// purely by fileName.slice(fileName.lastIndexOf(".") + 1), i.e.
-	// "whatever comes after the LAST dot in the string". A query string
-	// after ".js" makes that come out as "js?v=169..." which matches
-	// neither its "js" nor "mjs" case, so the loader silently never even
-	// creates the <script> tag - this took the whole module down (Earth3DRenderer
-	// undefined) rather than just failing to cache-bust. this.cacheBust is
-	// still set here (used by Earth3DRenderer.js's own dynamic import() of
-	// CloudsLayer.mjs, which bypasses this loader entirely and isn't
-	// affected by its extension-sniffing).
-	//
-	// public/vendor/suncalc.js IS vendored on purpose, not reused from MM
-	// core's own js/vendor.js "suncalc.js" shortcut (tried that - see that
-	// file's own header comment for why it's not actually safe: MM core
-	// ships different major suncalc versions with different, incompatible
-	// units - radians vs degrees - across different core releases, and
-	// separately, MM core's own default clock/weather modules load whatever
-	// version core ships as window.SunCalc too, which can silently
-	// overwrite this module's own).
+	// ES-module assets (CloudsLayer.mjs, three.js, three-globe, OrbitControls) are NOT listed here - MM core's getScripts() extension-sniffing can silently no-op on them, so Earth3DRenderer.js loads them itself via dynamic import(). Do NOT append "?v=" cache-busters to these URLs (tried, reverted - broke MM core's own script-vs-style detection entirely). public/vendor/suncalc.js is deliberately vendored, not MM core's own window.SunCalc (incompatible units/versions across core releases).
 	getScripts: function () {
 		this.cacheBust = Date.now();
 		return [
@@ -185,10 +129,7 @@ Module.register("MMM-Earth3D", {
 		];
 	},
 
-	// --- Preset/theme validation -----------------------------------------
-	// Runs once at startup. A malformed preset is dropped with a warning
-	// instead of crashing the module, so a broken hand-edited entry in
-	// presets/*.js can't take down the whole globe.
+	// --- Preset/theme validation: runs once at startup, drops a malformed preset with a warning instead of crashing the module ---
 
 	validatePresets: function (list, assetType, requiredFields) {
 		if (!Array.isArray(list)) {
@@ -227,20 +168,7 @@ Module.register("MMM-Earth3D", {
 		});
 	},
 
-	// --- Config resolution -------------------------------------------------
-	// MM's default config merge is shallow: if the user sets e.g.
-	// `atmosphere: { altitude: 0.22 }`, that object is a new reference
-	// distinct from this.defaults.atmosphere and is missing sibling fields
-	// (like color). We capture the raw object here, before refilling the
-	// full default shape, so it can be re-applied as the highest-priority
-	// layer after theme/preset resolution - this is what lets
-	// `theme: "nasa", atmosphere: { altitude: 0.22 }` work as a selective
-	// override instead of silently losing the rest of the atmosphere fields.
-	// Scalars (rotationSpeed, quality) don't have this problem - MM's merge
-	// handles plain values fine - but we still need to know whether the
-	// user set one explicitly so a theme doesn't override it; a value that
-	// happens to equal the default is treated as "not overridden", which is
-	// an acceptable, rare ambiguity for a single number.
+	// --- Config resolution: MM's default merge is shallow (a set atmosphere.altitude loses sibling fields), so the raw override is captured here to re-apply as the highest-priority layer after theme/preset resolution ---
 
 	captureUserOverrides: function () {
 		this.userOverrides = {
@@ -271,10 +199,7 @@ Module.register("MMM-Earth3D", {
 		return copy;
 	},
 
-	// Resolves theme + per-asset preset + explicit overrides into a
-	// complete this.config for every configurable field. Used both at
-	// start() and (via applyLiveConfig) on live updates, so theme switches
-	// and per-field preset/value changes go through one path.
+	// Resolves theme + per-asset preset + explicit overrides into a complete this.config - used at start() and via applyLiveConfig on live updates, one path for both.
 	resolveConfig: function () {
 		const theme = this.config.theme !== "custom"
 			? window.EARTH3D_THEMES.find((entry) => entry.id === this.config.theme)
@@ -296,13 +221,7 @@ Module.register("MMM-Earth3D", {
 		this.resolveCity();
 	},
 
-	// city isn't preset/theme-driven like the asset configs above - just a
-	// ";"-separated list of names to look up in window.EARTH3D_CITIES
-	// (presets/cities.js) via findCity() below, one marker per name.
-	// Resolves each to lat/lng (or null if no match) so Earth3DRenderer
-	// never needs to know about the lookup table itself. Top-level
-	// lat/lng/matchedName mirror the first entry, for the "center" one-shot
-	// action and older single-city callers.
+	// city isn't preset/theme-driven - a ";"-separated list of names resolved via findCity(), one marker per name; top-level lat/lng/matchedName mirror the first entry.
 	resolveCity: function () {
 		const override = this.userOverrides.city;
 		const name = (override && override.name !== undefined) ? override.name : this.defaults.city.name;
@@ -341,10 +260,7 @@ Module.register("MMM-Earth3D", {
 		return this.defaults[key];
 	},
 
-	// atmosphere/texture/camera: a theme can point at another preset's id
-	// (string, existing behaviour) OR supply literal values inline (object,
-	// merged the same way a preset's own payload would be) - either way,
-	// any field not mentioned anywhere falls back to the module default.
+	// atmosphere/texture/camera: a theme can point at another preset's id (string) or supply literal values inline (object) - either way, unmentioned fields fall back to the module default.
 	resolveAssetConfig: function (assetType, theme, deepKeys) {
 		const defaults = this.defaults[assetType];
 		const override = this.userOverrides[assetType];
@@ -385,9 +301,7 @@ Module.register("MMM-Earth3D", {
 		this.config[assetType] = resolved;
 	},
 
-	// dayNight/clouds: no preset-registry indirection (they're not a
-	// choose-from-a-style-list kind of asset), just default < theme's
-	// inline object < user override, merged the same way.
+	// dayNight/clouds: no preset-registry indirection, just default < theme's inline object < user override.
 	resolveDirectConfig: function (key, theme, deepKeys) {
 		const defaults = this.defaults[key];
 		const override = this.userOverrides[key];
@@ -407,11 +321,7 @@ Module.register("MMM-Earth3D", {
 		this.config[key] = resolved;
 	},
 
-	// Shared by preset/theme/override merging: copies payload's fields onto
-	// resolved, normalizing [x, y, z] array shorthand into {x, y, z} for
-	// deep (rotate/position) fields so it works the same everywhere -
-	// preset files, theme files, config.js, and live EARTH3D_SET_CONFIG
-	// payloads.
+	// Shared by preset/theme/override merging: copies payload's fields onto resolved, normalizing [x,y,z] shorthand into {x,y,z} for deep fields.
 	mergeAssetPayload: function (resolved, payload, deepKeys) {
 		Object.keys(payload).forEach((key) => {
 			if (deepKeys.indexOf(key) !== -1 || key === "preset") {
@@ -426,20 +336,9 @@ Module.register("MMM-Earth3D", {
 		});
 	},
 
-	// Merges a live-update patch into the tracked override for one asset
-	// type. A field value of `null` means "reset this field" - it deletes
-	// the key from the override instead of setting it, so resolveConfig()
-	// falls through to the preset/theme/default for it again (rather than
-	// pinning whatever value happened to be resolved at reset time, which
-	// would go stale if the theme changes later).
+	// Merges a live-update patch into the tracked override - a field value of `null` deletes the key so resolveConfig() falls through to preset/theme/default again, instead of pinning a stale resolved value.
 	mergeOverride: function (assetType, patch, deepKeys) {
-		// Deliberately {} rather than a copy of this.defaults[assetType]: an
-		// override must stay sparse, holding only fields the caller actually
-		// touched (here or in an earlier call). Falling back to full
-		// defaults would bake in e.g. the default color the first time
-		// altitude alone is live-updated, silently discarding whatever a
-		// theme had set for color (and flipping preset back to "custom",
-		// discarding a theme's referenced preset entirely).
+		// Deliberately {} not a copy of this.defaults[assetType] - an override must stay sparse, or a single-field update would bake in and discard the rest of a theme's asset payload.
 		const existing = this.userOverrides[assetType] || {};
 		const merged = Object.assign({}, existing);
 
@@ -481,11 +380,7 @@ Module.register("MMM-Earth3D", {
 			wrapper.style.width = this.config.width + "px";
 			wrapper.style.height = this.config.height + "px";
 		} else if (this.isFullscreenPosition()) {
-			// fullscreen_above/below are meant to cover the whole display -
-			// position:fixed to the viewport sidesteps whatever intrinsic
-			// size (or lack thereof) MM's region/container chain has, so the
-			// globe fills the actual screen instead of needing a guessed
-			// width/height. The renderer measures this after layout.
+			// position:fixed to the viewport sidesteps MM's region/container chain, so the globe fills the screen instead of needing a guessed size.
 			wrapper.classList.add("MMM-Earth3D--fullscreen");
 		} else {
 			Log.warn(this.name + ": width/height not set and position \"" + this.data.position
@@ -502,8 +397,7 @@ Module.register("MMM-Earth3D", {
 		return typeof this.data.position === "string" && this.data.position.indexOf("fullscreen") === 0;
 	},
 
-	// The renderer needs the container attached to the live DOM to measure
-	// its size, so it's built after MM's initial DOM pass completes.
+	// The renderer needs the container attached to the live DOM to measure its size, so it's built after MM's initial DOM pass completes.
 	notificationReceived: function (notification, payload) {
 		if (notification === "DOM_OBJECTS_CREATED") {
 			this.debugLog("DOM_OBJECTS_CREATED - constructing Earth3DRenderer");
@@ -518,11 +412,7 @@ Module.register("MMM-Earth3D", {
 		}
 	},
 
-	// Same live-tune entry point as notificationReceived's EARTH3D_SET_CONFIG
-	// case, but arriving from this module's own node_helper (POST
-	// /MMM-Earth3D/set-config) instead of MM's core notification bus - this is
-	// what control.html actually uses, so tuning doesn't depend on a separate
-	// module like MMM-Remote-Control being installed and configured.
+	// Same live-tune entry point as notificationReceived's EARTH3D_SET_CONFIG, but from this module's own node_helper (POST /MMM-Earth3D/set-config), which is what control.html actually uses.
 	socketNotificationReceived: function (notification, payload) {
 		if (notification === "EARTH3D_SET_CONFIG") {
 			this.handleSetConfig("socket", payload);
@@ -538,9 +428,7 @@ Module.register("MMM-Earth3D", {
 			return;
 		}
 
-		// Live position from node_helper's OpenSky poller (lib/flightTracker.js) -
-		// not a config change, so this bypasses handleSetConfig()/applyLiveConfig()
-		// entirely and goes straight to the renderer.
+		// Live position from node_helper's OpenSky poller - not a config change, so bypasses handleSetConfig()/applyLiveConfig() and goes straight to the renderer.
 		if (notification === "EARTH3D_FLIGHT_POSITION") {
 			this.debugLog("EARTH3D_FLIGHT_POSITION", payload);
 			if (this.renderer) {
@@ -549,24 +437,19 @@ Module.register("MMM-Earth3D", {
 			return;
 		}
 
-		// control.html's Home page buttons (theme switch, save/duplicate/
-		// delete) need to know the actual resolved config/overrides to fill
-		// their controls and to know what "current settings" means - answered
-		// via node_helper's GET /MMM-Earth3D/config, which relays the request
-		// here and relays this reply back to the HTTP caller.
+		// control.html's Home page buttons need the resolved config/overrides - answered via node_helper's GET /MMM-Earth3D/config, which relays the request/reply here.
 		if (notification === "EARTH3D_REQUEST_CONFIG") {
+			// this.config.flightCredentials is never sent here - the exact "echoed back verbatim over the LAN" path defaults.flightCredentials exists to protect against.
+			const safeConfig = Object.assign({}, this.config);
+			delete safeConfig.flightCredentials;
 			this.sendSocketNotification("EARTH3D_CONFIG_STATE", {
-				config: this.config,
+				config: safeConfig,
 				overrides: this.userOverrides
 			});
 		}
 	},
 
-	// Shared by both delivery paths above. Logs receipt unconditionally (not
-	// just under config.debug) when the renderer isn't ready yet, since a
-	// dropped update is otherwise completely silent - no error, no visual
-	// change, nothing to go on - which is exactly the symptom this exists to
-	// catch.
+	// Shared by both delivery paths above - warns unconditionally when the renderer isn't ready yet, since a dropped update is otherwise completely silent.
 	handleSetConfig: function (via, payload) {
 		this.debugLog("EARTH3D_SET_CONFIG via " + via, JSON.stringify(payload), "renderer ready:", Boolean(this.renderer));
 		if (!this.renderer) {
@@ -576,40 +459,24 @@ Module.register("MMM-Earth3D", {
 		this.applyLiveConfig(payload || {});
 	},
 
-	// Tells node_helper.js's flight tracker (lib/flightTracker.js) what the
-	// resolved flights config currently is, so its OpenSky polling lifecycle
-	// stays in sync regardless of which of the three ways a config change
-	// can arrive (this module's own node_helper, MM's notification bus via
-	// MMM-Remote-Control, or a direct config.js value at startup) - all of
-	// them funnel through here (start(), and applyLiveConfig() below).
+	// Tells node_helper's flight tracker the resolved flights config, so its OpenSky polling stays in sync regardless of which of the three ways a config change can arrive.
 	sendFlightsState: function () {
 		this.sendSocketNotification("EARTH3D_FLIGHTS_STATE", this.config.flights);
 	},
 
-	// Live-tunes the running globe without a page reload. Reachable two ways:
-	// this module's own node_helper at POST /MMM-Earth3D/set-config (what
-	// control.html uses, no auth/dependencies required), e.g.:
-	//   curl -X POST http://<mirror-host>:8080/MMM-Earth3D/set-config \
-	//     -H "content-type: application/json" -d '{"camera": {"zoom": 30}}'
-	// or, if you already have MMM-Remote-Control installed, its generic
-	// notification API works too:
-	//   POST /api/notification/EARTH3D_SET_CONFIG  { "camera": { "zoom": 30 } }
-	// Either way, payloads like { "theme": "nasa" } switch the whole look at once.
+	// A completely separate path from sendFlightsState() (see defaults.flightCredentials) - only sent once at start(), since config.js doesn't change without a restart.
+	sendFlightCredentials: function () {
+		const creds = this.config.flightCredentials;
+		if (creds && creds.clientId && creds.clientSecret) {
+			this.sendSocketNotification("EARTH3D_FLIGHT_CREDENTIALS", { clientId: creds.clientId, clientSecret: creds.clientSecret });
+		}
+	},
+
+	// Live-tunes the running globe without a page reload - reachable via this module's own node_helper (POST /MMM-Earth3D/set-config, what control.html uses) or MMM-Remote-Control's generic notification API.
 	applyLiveConfig: function (partial) {
 		const themeChanged = partial.theme !== undefined;
 
-		// Picking a theme is supposed to mean "give me that theme's whole
-		// look" - without this, a userOverride captured earlier (including
-		// an explicit value in config.js itself, captured once at startup by
-		// captureUserOverrides()) would silently keep outranking the theme
-		// for every field it sets, forever, since an override always wins
-		// over a theme by design. That defeats the point of switching
-		// themes: e.g. a config.js that sets camera.rotate/zoom just to have
-		// a sane initial framing would otherwise permanently block every
-		// theme from ever changing the camera again. Only clear a field's
-		// override if THIS SAME payload isn't also setting it directly, so
-		// "{theme: x, camera: {...}}" (tweak one thing on top of a theme)
-		// still works as documented.
+		// Picking a theme means "give me that theme's whole look" - clear a field's override (unless this same payload also sets it directly) so an earlier override doesn't permanently outrank every future theme switch.
 		if (themeChanged) {
 			if (partial.rotationSpeed === undefined) {
 				this.userOverrides.rotationSpeed = undefined;
@@ -642,13 +509,7 @@ Module.register("MMM-Earth3D", {
 		const cloudsChanged = Boolean(partial.clouds);
 		const flightsChanged = Boolean(partial.flights);
 
-		// "center" is a one-shot action ("recenter the globe on this city
-		// now"), not persisted state - stripped out here so it never ends up
-		// baked into userOverrides.city (which would otherwise re-trigger a
-		// recenter on every future theme/config resolve). city.name with no
-		// "center" just places/updates the marker without moving the camera;
-		// {"city": {"center": true}} alone recenters on whatever city is
-		// already configured, no name required.
+		// "center" is a one-shot action, not persisted state - stripped out here so it never bakes into userOverrides.city and re-triggers on every future resolve.
 		const cityPatch = partial.city ? Object.assign({}, partial.city) : null;
 		const shouldCenterCity = Boolean(cityPatch && cityPatch.center);
 		if (cityPatch) {
@@ -689,7 +550,12 @@ Module.register("MMM-Earth3D", {
 			|| dayNightChanged || cloudsChanged || flightsChanged || cityChanged
 			|| partial.rotationSpeed !== undefined || partial.quality !== undefined) {
 			this.resolveConfig();
-			this.debugLog("resolved config after applyLiveConfig", JSON.stringify(this.config));
+			// flightCredentials redacted even in debug output.
+			const debugConfig = Object.assign({}, this.config);
+			if (debugConfig.flightCredentials) {
+				debugConfig.flightCredentials = "[redacted]";
+			}
+			this.debugLog("resolved config after applyLiveConfig", JSON.stringify(debugConfig));
 		}
 
 		if (themeChanged || partial.rotationSpeed !== undefined) {
@@ -715,19 +581,14 @@ Module.register("MMM-Earth3D", {
 			this.renderer.applyClouds();
 		}
 		if (flightsChanged) {
-			// Not gated by themeChanged (unlike every field above) - flights
-			// is deliberately not part of theme switching, see defaults.flights'
-			// own comment - so this only ever fires when flights itself changed.
+			// Not gated by themeChanged (unlike every field above) - flights is deliberately not part of theme switching.
 			this.renderer.applyFlights();
 			this.sendFlightsState();
 		}
 		if (cityChanged) {
 			this.renderer.applyCity();
 		}
-		// Runs after applyCity() so a combined {"city": {"name": ..., "center":
-		// true}} request centers on the marker it just placed, not the
-		// previous one - resolveConfig() above already re-resolved
-		// this.config.city.lat/lng for the new name by this point.
+		// After applyCity() so a combined {name, center:true} request centers on the marker it just placed, not the previous one.
 		if (shouldCenterCity && this.config.city.lat !== null) {
 			this.renderer.centerOnCity(this.config.city.lat, this.config.city.lng);
 		}
@@ -744,9 +605,7 @@ Module.register("MMM-Earth3D", {
 	}
 });
 
-// Accepts [x, y, z] (array shorthand, any axis may be omitted) or {x, y, z}
-// and always returns an {x, y, z}-shaped object, so rotate/position fields
-// can be written either way in config.js, presets/*.js, or live updates.
+// Accepts [x, y, z] (any axis omittable) or {x, y, z} and always returns {x, y, z}, so rotate/position fields can be written either way.
 function normalizeVec3(value) {
 	if (!Array.isArray(value)) {
 		return value;
@@ -764,10 +623,7 @@ function normalizeVec3(value) {
 	return result;
 }
 
-// Looks up config.city.name in window.EARTH3D_CITIES (presets/cities.js),
-// case-insensitively: exact match first, then prefix, then substring - so
-// "tokyo", "Tok", and "new tok" (-> "New York") all resolve to something
-// reasonable rather than requiring an exact bundled name.
+// Looks up config.city.name in window.EARTH3D_CITIES case-insensitively: exact match, then prefix, then substring.
 function findCity(query) {
 	const cities = window.EARTH3D_CITIES || [];
 	const needle = String(query).trim().toLowerCase();

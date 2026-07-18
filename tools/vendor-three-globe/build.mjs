@@ -1,28 +1,4 @@
-// Regenerates public/vendor/three-globe.mjs - a single self-contained ESM
-// bundle of three-globe with the "three" core import left as-is (rewritten
-// straight to the relative path our own vendored Three.js build lives at, so
-// there's no manual patch step to forget on a version bump) and its unused
-// WebGPU/TSL render path stubbed out (see stub-webgpu.mjs/stub-tsl.mjs - that
-// path alone is ~2MB in three's own build and MMM-Earth3D never uses it).
-//
-// Why not vendor the official prebuilt files directly:
-// - dist/three-globe.min.js (UMD) is fully self-contained but requires a
-//   window.THREE global before it loads, and bundles the unused WebGPU/TSL
-//   path anyway (1.28MB vs this build's ~540KB).
-// - dist/three-globe.mjs (ESM) is the "real" published module, but it leaves
-//   ~17 of three-globe's own npm dependencies (d3-geo, kapsule, tinycolor2,
-//   three-slippy-map-globe, three/examples/jsm/* addons, etc.) as unresolved
-//   bare imports for a bundler/import-map to handle - vendoring all of those
-//   individually would be disproportionate for a globe+atmosphere+clouds+
-//   day/night feature set.
-//
-// This script bundles that same ESM entry point ourselves, inlining
-// everything except the "three" core import, so the output is a flat file
-// loadable exactly like every other file under public/vendor/.
-//
-// Regenerate with (from this directory):
-//   npm install --no-save three-globe@^2.45 three@0.185.0 esbuild
-//   node build.mjs
+// Regenerates public/vendor/three-globe.mjs - a self-contained ESM bundle of three-globe with "three" rewritten to our vendored build and the unused WebGPU/TSL path stubbed out. Regenerate: npm install --no-save three-globe@^2.45 three@0.185.0 esbuild && node build.mjs
 
 import * as esbuild from "esbuild";
 import path from "path";
@@ -42,11 +18,7 @@ await esbuild.build({
 		{
 			name: "single-three-instance",
 			setup(build) {
-				// Exact specifier "three" only (not its subpaths, e.g.
-				// "three/examples/jsm/..." below, which should stay bundled in -
-				// they're small utility addons, harmless to inline even unused).
-				// Rewritten straight to the relative vendor path so the emitted
-				// file needs no post-build patch.
+				// Exact specifier "three" only, not subpaths like three/examples/jsm/... (small addons, harmless to inline).
 				build.onResolve({ filter: /^three$/ }, () => ({
 					path: "./three.module.min.js",
 					external: true

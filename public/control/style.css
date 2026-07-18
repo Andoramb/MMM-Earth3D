@@ -1,8 +1,4 @@
-/*
- * Shared styles for the MMM-Earth3D control panel (public/control/*.html).
- * One file, linked from every page, instead of the same <style> block
- * copy-pasted into home.html/planet-env.html/layers.html.
- */
+/* Shared styles for the MMM-Earth3D control panel, linked from every page instead of copy-pasted <style> blocks. */
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
 body {
@@ -18,6 +14,10 @@ body {
 	background: #161616;
 	border-right: 1px solid #2a2a2a;
 	padding: 16px 0;
+	position: sticky;
+	top: 0;
+	align-self: flex-start;
+	height: 100vh;
 }
 .sidebar .nav-item {
 	display: block;
