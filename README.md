@@ -2,6 +2,10 @@
 
 A [MagicMirror²](https://magicmirror.builders/) module that renders a rotating, photorealistic 3D planet using [three-globe](https://github.com/vasturiano/three-globe) and [Three.js](https://threejs.org/).
 
+<p align="center">
+<img style="width: 20%;" src="globe1.png">
+</p>
+
 ## Features
 
 - Realistic Earth texture with atmosphere glow, at selectable quality tiers
@@ -127,6 +131,21 @@ If [MMM-Remote-Control](https://github.com/Jopyth/MMM-Remote-Control) is install
 ### Bonus for LLM agents
 
 `skills/mmm-planet3d-control/SKILL.md` documents the full HTTP API for driving this module from an LLM agent — themes, live tuning, flight tracking, city markers.
+
+## Attributions & data sources
+
+**Live data services** (network calls made at runtime):
+- [NASA GIBS](https://www.earthdata.nasa.gov/eosdis/science-system-description/eosdis-components/gibs) / [Worldview Snapshots API](https://wvs.earthdata.nasa.gov/) — live zoomable satellite tiles (`texture.preset: "tile-engine"`) and the realtime day/night + cloud composite (`clouds.source: "realtime"`), both built on NASA's Blue Marble Next Generation imagery.
+- [OpenSky Network](https://opensky-network.org/) — real-time flight position data for the flight-tracking layer.
+- [OpenStreetMap Nominatim](https://nominatim.org/) — geocoding for `city.name` (place/POI name → coordinates).
+
+**Bundled imagery** (`public/img/`, vendored locally so the module has no runtime CDN dependency for the static look): Earth day/night/topology/cloud textures derived from NASA's [Visible Earth / Blue Marble Next Generation](https://visibleearth.nasa.gov/collection/1484/blue-marble) collection (public domain).
+
+**Third-party code** (vendored under `public/vendor/`):
+- [three-globe](https://github.com/vasturiano/three-globe) (Vasco Asturiano) — the globe/labels rendering layer this module builds on.
+- [Three.js](https://threejs.org/), including its `OrbitControls` example addon.
+- [@pmndrs/vanilla](https://github.com/pmndrs/vanilla) `Stars` (the pmndrs/drei team) — the star-particle background layer.
+- [SunCalc](https://github.com/mourner/suncalc) (Vladimir Agafonkin) — sun position for the realtime day/night terminator.
 
 ## License
 
